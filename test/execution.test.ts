@@ -7,7 +7,7 @@ import { registerGeneratedPipeline } from "../src/generated/register.ts";
 import { PipelineExecutor, createRuntimeSnapshot } from "../src/pipeline/execute.ts";
 import { validateParsedPipeline } from "../src/pipeline/validate.ts";
 import type { PipelineSpecV1 } from "../src/types.ts";
-import { fixture, registerHandler, registerMappedFixtures, resolverFrom } from "./helpers.ts";
+import { disposeTestNode, fixture, installTestNode, registerHandler, registerMappedFixtures, resolverFrom } from "./helpers.ts";
 
 async function materialize(spec: PipelineSpecV1, fabric: ReturnType<typeof createProtocolFabric>): Promise<PipelineSpecV1> {
   const report = validateParsedPipeline(spec, resolverFrom(fabric)).report;
@@ -53,7 +53,7 @@ test("execution fails fast without retries and reports completed effecting steps
   const fabric = createProtocolFabric();
   let firstCalls = 0;
   let secondCalls = 0;
-  fabric.register({
+  installTestNode(fabric, {
     node: {
       nodeId: "fail_fixture",
       purpose: "Failure fixture",
@@ -159,7 +159,7 @@ test("oversized intermediate outputs and changed pinned dependencies are refused
   const executor = new PipelineExecutor(fabric, resolverFrom(fabric));
   await assert.rejects(() => executor.execute(createRuntimeSnapshot(spec), "x"), (error) => error instanceof PipelineError && error.code === "STEP_OUTPUT_TOO_LARGE");
 
-  fabric.unregister("large");
+  await disposeTestNode(fabric, "large");
   registerHandler(fabric, "large", "run", { type: "number" }, { type: "string" }, () => "changed", [], "2.0.0");
   await assert.rejects(() => executor.execute(createRuntimeSnapshot(spec), "x"), (error) => error instanceof PipelineError && error.code === "DEPENDENCY_CHANGED");
 });

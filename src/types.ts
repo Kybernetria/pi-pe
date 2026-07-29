@@ -1,14 +1,19 @@
 import type {
   ExecutionSpec,
   InvokeErrorCode,
-  JsonSchemaLite,
+  JsonSchemaLite as CoreJsonSchemaLite,
   ProtocolInvocationContext,
   ProvideSnapshot,
 } from "@kybernetria/pi-protocol/core";
 import type { ProtocolManifestV1 } from "@kybernetria/pi-protocol/contract";
 
 export type PiProtocolManifest = ProtocolManifestV1;
-export type { JsonSchemaLite, ProtocolInvocationContext, ProvideSnapshot };
+export type { ProtocolInvocationContext, ProvideSnapshot };
+export type JsonSchemaLite = Omit<CoreJsonSchemaLite, "properties" | "items"> & {
+  properties?: Record<string, JsonSchemaLite>;
+  additionalProperties?: boolean;
+  items?: JsonSchemaLite;
+};
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };

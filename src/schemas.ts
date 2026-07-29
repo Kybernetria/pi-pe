@@ -1,6 +1,6 @@
-import type { JsonSchemaLite } from "@kybernetria/pi-protocol/core";
 import type {
   Binding,
+  JsonSchemaLite,
   DependencySnapshot,
   Issue,
   JsonValue,
@@ -43,13 +43,17 @@ export function validateJsonSchemaDefinition(schema: unknown, path = "schema", i
 
   let valid = true;
   for (const key of Object.keys(schema)) {
-    if (!["type", "required", "properties", "items", "enum", "description"].includes(key)) {
+    if (!["type", "required", "properties", "additionalProperties", "items", "enum", "description"].includes(key)) {
       issues.push({ code: "UNSUPPORTED_SCHEMA_KEY", message: `${path}.${key} is not supported by JsonSchemaLite`, path: `${path}/${key}` });
       valid = false;
     }
   }
   if (schema.type !== undefined && (typeof schema.type !== "string" || !SCHEMA_TYPES.has(schema.type))) {
     issues.push({ code: "INVALID_SCHEMA_TYPE", message: `${path}.type is invalid`, path: `${path}/type` });
+    valid = false;
+  }
+  if (schema.additionalProperties !== undefined && typeof schema.additionalProperties !== "boolean") {
+    issues.push({ code: "INVALID_SCHEMA_ADDITIONAL_PROPERTIES", message: `${path}.additionalProperties must be boolean`, path: `${path}/additionalProperties` });
     valid = false;
   }
   if (schema.description !== undefined && typeof schema.description !== "string") {
@@ -91,7 +95,7 @@ export function validateJsonSchemaDefinition(schema: unknown, path = "schema", i
     issues.push({ code: "INVALID_SCHEMA_SHAPE", message: `${path} mixes object and array keywords`, path });
     valid = false;
   }
-  if (schema.type && schema.type !== "object" && (schema.required !== undefined || schema.properties !== undefined)) {
+  if (schema.type && schema.type !== "object" && (schema.required !== undefined || schema.properties !== undefined || schema.additionalProperties !== undefined)) {
     issues.push({ code: "INVALID_SCHEMA_SHAPE", message: `${path} uses object keywords with type ${schema.type}`, path });
     valid = false;
   }
@@ -111,6 +115,11 @@ export function validateJsonSchemaValue(schema: JsonSchemaLite, value: unknown, 
     if (!isPlainObject(value)) return `${path} must be object`;
     for (const key of schema.required ?? []) {
       if (!Object.prototype.hasOwnProperty.call(value, key)) return `${path}.${key} is required`;
+    }
+    if (schema.additionalProperties === false) {
+      const known = new Set(Object.keys(schema.properties ?? {}));
+      const extra = Object.keys(value).find((key) => !known.has(key));
+      if (extra) return `${path}.${extra} is not allowed`;
     }
     for (const [key, child] of Object.entries(schema.properties ?? {})) {
       if (Object.prototype.hasOwnProperty.call(value, key)) {

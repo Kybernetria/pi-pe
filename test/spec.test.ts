@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createProtocolFabric } from "@kybernetria/pi-protocol";
 import { validatePipelineCandidate } from "../src/pipeline/validate.ts";
-import { fixture, registerMappedFixtures, resolverFrom } from "./helpers.ts";
+import { fixture, installTestNode, registerMappedFixtures, resolverFrom } from "./helpers.ts";
 
 test("a fully mapped two-step spec receives static assurance", async () => {
   const fabric = createProtocolFabric();
@@ -48,7 +48,7 @@ test("later-step references, unmapped required inputs, and self references fail"
 
 test("broad pass-through schemas require runtime-only review", async () => {
   const fabric = createProtocolFabric();
-  fabric.register({
+  installTestNode(fabric, {
     node: {
       nodeId: "broad",
       purpose: "Broad target",

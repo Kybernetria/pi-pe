@@ -37,7 +37,7 @@ export function createFabricTargetResolver(fabric: ProtocolFabric, derived?: Rea
     const provide = fabric.describeProvide(parsed.nodeId, parsed.provide);
     const node = fabric.describeNode(parsed.nodeId);
     if (!provide || !node) return undefined;
-    return { provide, packageId: node.packageId, nodeVersion: node.version };
+    return { provide };
   };
 }
 
@@ -51,7 +51,7 @@ export function catalogProvides(fabric: ProtocolFabric, managementNodeId: string
 
   const matches = snapshot.provides.map((provide) => {
     const node = nodes.get(provide.nodeId)!;
-    const generated = node.packageId?.startsWith("pi-pe/generated/") === true || (node.tags ?? []).includes("generated");
+    const generated = (node.tags ?? []).includes("generated");
     const tags = [...new Set([...(node.tags ?? []), ...(provide.tags ?? [])])];
     const effects = [...new Set(provide.effects ?? [])].sort();
     const card: CatalogCard = {
@@ -60,7 +60,6 @@ export function catalogProvides(fabric: ProtocolFabric, managementNodeId: string
       provide: provide.name,
       description: provide.description,
       purpose: node.purpose,
-      ...(provide.version ?? node.version ? { version: provide.version ?? node.version } : {}),
       tags,
       executionType: provide.execution.type,
       effects,
@@ -86,7 +85,7 @@ export function catalogProvides(fabric: ProtocolFabric, managementNodeId: string
 
 export function describeTarget(fabric: ProtocolFabric, managementNodeId: string, target: string): {
   target: string;
-  node: { nodeId: string; purpose: string; packageId?: string; version?: string; tags: string[] };
+  node: { nodeId: string; purpose: string; tags: string[] };
   provide: ProvideSnapshot;
   fingerprint: string;
   generated: boolean;
@@ -97,19 +96,17 @@ export function describeTarget(fabric: ProtocolFabric, managementNodeId: string,
   const provide = fabric.describeProvide(parsed.nodeId, parsed.provide);
   const node = fabric.describeNode(parsed.nodeId);
   if (!provide || !node) return undefined;
-  const resolved = { provide, packageId: node.packageId, nodeVersion: node.version };
+  const resolved = { provide };
   return {
     target,
     node: {
       nodeId: node.nodeId,
       purpose: node.purpose,
-      ...(node.packageId ? { packageId: node.packageId } : {}),
-      ...(node.version ? { version: node.version } : {}),
       tags: node.tags ?? [],
     },
     provide,
     fingerprint: fingerprintTarget(resolved),
-    generated: node.packageId?.startsWith("pi-pe/generated/") === true || (node.tags ?? []).includes("generated"),
+    generated: (node.tags ?? []).includes("generated"),
     management: node.nodeId === managementNodeId,
   };
 }

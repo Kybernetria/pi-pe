@@ -22,7 +22,7 @@ test("complete lifecycle works through management protocol provides", async () =
   if (catalog.ok) assert((catalog.output as { total: number }).total >= 2);
 
   const described = await fabric.invoke({ nodeId: "pi_pe", provide: "describe_target", input: { target: "fixture.upper" } });
-  assert.equal(described.ok, true);
+  assert.equal(described.ok, true, described.ok ? "" : `${described.error.code}: ${described.error.message}`);
   if (described.ok) assert.equal(typeof (described.output as { fingerprint: string }).fingerprint, "string");
 
   const spec = await fixture("mapped.pipeline.json");

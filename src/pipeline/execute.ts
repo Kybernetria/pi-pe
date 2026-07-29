@@ -138,12 +138,12 @@ export class PipelineExecutor {
           traces.push({
             stepId: step.id,
             target: step.target,
-            status: result.error.code === "ABORTED" ? "aborted" : "failed",
+            status: result.error.code === "CANCELLED" ? "aborted" : "failed",
             durationMs,
             downstreamCode: result.error.code,
           });
           if (pipelineAbort.signal.aborted) throw abortError(pipelineAbort.reason(), step.id);
-          if (result.error.code === "ABORTED") throw new PipelineError("PIPELINE_ABORTED", `step ${step.id} was aborted`, { stepId: step.id, target: step.target });
+          if (result.error.code === "CANCELLED") throw new PipelineError("PIPELINE_ABORTED", `step ${step.id} was aborted`, { stepId: step.id, target: step.target });
           if (/\[PIPELINE_CYCLE\]/.test(result.error.message)) {
             throw new PipelineError("PIPELINE_CYCLE", `step ${step.id} encountered a nested pipeline cycle: ${result.error.message}`, { stepId: step.id, target: step.target });
           }

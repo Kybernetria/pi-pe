@@ -7,7 +7,7 @@ import { createProtocolFabric } from "@kybernetria/pi-protocol";
 import { PipelineError } from "../src/errors.ts";
 import { PipelineService } from "../src/pipeline/service.ts";
 import { PipelineRepository } from "../src/storage/repository.ts";
-import { fixture, registerMappedFixtures } from "./helpers.ts";
+import { disposeTestNode, fixture, installTestNode, registerMappedFixtures } from "./helpers.ts";
 
 async function setup() {
   const root = await mkdtemp(join(tmpdir(), "pi-pe-registration-"));
@@ -46,7 +46,7 @@ test("save registers a stable generated handler and survives reconciliation", as
 test("runtime-only save needs explicit review and delete needs confirmation", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-pe-runtime-only-"));
   const fabric = createProtocolFabric();
-  fabric.register({
+  installTestNode(fabric, {
     node: {
       nodeId: "broad",
       purpose: "broad",
@@ -81,7 +81,7 @@ test("corrupt specs are quarantined while unrelated pipelines remain registered"
 test("compatible policy permits a version-only reviewed contract change", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-pe-compatible-"));
   const fabric = createProtocolFabric();
-  const register = (version: string) => fabric.register({
+  const register = (version: string) => installTestNode(fabric, {
     node: {
       nodeId: "stable",
       purpose: "stable contract",
@@ -107,7 +107,7 @@ test("compatible policy permits a version-only reviewed contract change", async 
     dependencyPolicy: "compatible",
     steps: [{ id: "echo", target: "stable.echo", input: { mode: "pass", from: { source: "pipeline_input" } } }],
   });
-  fabric.unregister("stable");
+  await disposeTestNode(fabric, "stable");
   register("2.0.0");
   const statuses = await service.reload();
   assert.equal(statuses.find((item) => item.id === "compatible")?.status, "enabled");
@@ -116,9 +116,9 @@ test("compatible policy permits a version-only reviewed contract change", async 
 test("a changed pinned dependency disables its generated pipeline", async () => {
   const { fabric, service } = await setup();
   await service.save(await fixture("mapped.pipeline.json"));
-  fabric.unregister("fixture");
+  await disposeTestNode(fabric, "fixture");
   // Same targets, changed upper input schema and node version.
-  fabric.register({
+  installTestNode(fabric, {
     node: {
       nodeId: "fixture",
       purpose: "changed",
