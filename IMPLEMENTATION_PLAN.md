@@ -600,7 +600,7 @@ Each addition requires a spec version bump or backward-compatible optional field
 - exact step order;
 - output-to-next-input behavior;
 - mapping from pipeline input and earlier steps;
-- downstream NOT_FOUND, INVALID_INPUT, INVALID_OUTPUT, POLICY_DENIED, EXECUTION_FAILED, and ABORTED;
+- downstream `NOT_FOUND`, `INPUT_INVALID`, `OUTPUT_INVALID`, `FORBIDDEN`, `EXECUTION_FAILED`, `CANCELLED`, and `OUTCOME_UNKNOWN`;
 - timeout and caller cancellation;
 - oversized intermediate output;
 - no implicit retry;
