@@ -36,8 +36,7 @@
     "generated": "protocol.generated.ts"
   },
   "dependencies": {
-    "@kybernetria/pi-protocol": "file:../pi-protocol/packages/pi-protocol",
-    "ajv": "8.18.0"
+    "@kybernetria/pi-protocol": "https://github.com/Kybernetria/pi-protocol/releases/download/v2.0.0/kybernetria-pi-protocol-2.0.0.tgz"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
