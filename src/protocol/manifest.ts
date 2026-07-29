@@ -1,23 +1,10 @@
 import { readFileSync } from "node:fs";
-import {
-  createProtocolNamespace,
-  parseProtocolManifest,
-  type ProtocolNamespace,
-  type PiProtocolManifest,
-} from "@kybernetria/pi-protocol";
-
-export interface ManagementProtocolDefinition {
-  manifest: PiProtocolManifest;
-  namespace: ProtocolNamespace;
-}
+import { parseProtocolManifest, type ProtocolDefinition } from "@kybernetria/pi-protocol/contract";
 
 export function loadManagementProtocol(
   url = new URL("../../pi.protocol.json", import.meta.url),
-): ManagementProtocolDefinition {
-  const manifest = parseProtocolManifest(readFileSync(url, "utf8"));
-  return { manifest, namespace: createProtocolNamespace(manifest) };
+): ProtocolDefinition {
+  return parseProtocolManifest(readFileSync(url, "utf8"), { allowLegacyV02: false });
 }
 
-export function loadManagementManifest(url = new URL("../../pi.protocol.json", import.meta.url)): PiProtocolManifest {
-  return loadManagementProtocol(url).manifest;
-}
+export const loadManagementDefinition = loadManagementProtocol;

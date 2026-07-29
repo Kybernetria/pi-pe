@@ -1,7 +1,7 @@
 # Pi-PE Full Implementation Plan
 
 Status: implemented  
-Target: Pi extension and pi-protocol 0.2.0 pipeline builder  
+Target: Pi extension and canonical Pi Protocol schemaVersion 1 pipeline builder
 Primary outcome: create discoverable handler-backed provides by safely composing existing protocol provides into validated linear pipelines
 
 ## 1. Product definition
@@ -257,7 +257,7 @@ The example intentionally avoids a fragile assumption about search output shape.
 
 ## 6. Management protocol surface
 
-The static `pi_pe` manifest uses pi-protocol 0.2.0 and handler execution objects.
+The static `pi_pe` manifest uses canonical schemaVersion 1 contracts; exact handler bindings are private owned registrations.
 
 | Provide | Purpose |
 |---|---|
@@ -470,26 +470,26 @@ For each pipeline, derive:
 
 ```json
 {
-  "protocolVersion": "0.2.0",
-  "nodeId": "pi_pe_pipeline_<safe-id>",
-  "packageId": "pi-pe/generated/<pipeline-id>",
-  "version": "<pipeline-version>",
-  "purpose": "<description>",
-  "tags": ["pipeline", "generated"],
+  "$schema": "https://pi.dev/protocol/manifest-v1.schema.json",
+  "schemaVersion": 1,
+  "node": {
+    "id": "pi_pe_pipeline_<safe-id>",
+    "purpose": "<description>",
+    "tags": ["pipeline", "generated"]
+  },
   "provides": [
     {
       "name": "run",
       "description": "<description plus fixed step summary>",
       "inputSchema": {},
       "outputSchema": {},
-      "execution": { "type": "handler", "handler": "run" },
-      "effects": []
+      "effects": ["protocol.invoke"]
     }
   ]
 }
 ```
 
-Effects are the sorted union of dependency effects plus `protocol_invoke`. This is informative, not a substitute for downstream policy enforcement. Generated descriptions list fixed targets but never include secrets or example payload values.
+Effects are the conservative standard-effect union of dependencies plus `protocol.invoke`. This is informative, not a substitute for downstream policy enforcement. Generated descriptions list fixed targets but never include secrets or example payload values.
 
 ## 16. Optional Pi command/UI
 
@@ -510,7 +510,7 @@ The command calls the same domain services as protocol handlers. It must not con
 
 ### Phase 0 - Contract spike
 
-- scaffold package and pi-protocol 0.2.0 static manifest;
+- scaffold package and canonical schemaVersion 1 static manifest;
 - prove registry/describe/invoke behavior against installed protocol APIs;
 - register one in-memory generated handler node;
 - prove nested trace propagation with `invokeFromCurrentContext()`;

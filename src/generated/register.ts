@@ -1,25 +1,37 @@
-import { createProtocolNamespace, registerProtocolManifest, type ProtocolFabric, type ProtocolHandler } from "@kybernetria/pi-protocol";
+import type { ProtocolManifestV1 } from "@kybernetria/pi-protocol/contract";
+import { parseProtocolManifest } from "@kybernetria/pi-protocol/contract";
+import type { ProtocolFabric, ProtocolHandler, ProtocolRegistration } from "@kybernetria/pi-protocol/core";
 import type { PipelineExecutor } from "../pipeline/execute.ts";
-import { GENERATED_NODE_PREFIX, GENERATED_RUN_PROVIDE } from "../schemas.ts";
-import type { PiProtocolManifest, PipelineRuntimeSnapshot } from "../types.ts";
+import { GENERATED_RUN_PROVIDE } from "../schemas.ts";
+import type { PipelineRuntimeSnapshot } from "../types.ts";
 
 export function registerGeneratedPipeline(
   fabric: ProtocolFabric,
-  manifest: PiProtocolManifest,
+  manifest: ProtocolManifestV1,
   snapshot: PipelineRuntimeSnapshot,
   executor: PipelineExecutor,
-): void {
-  const handler: ProtocolHandler = async (input, context) => (await executor.execute(snapshot, input, context)).output;
-  const protocol = createProtocolNamespace(manifest);
-  const runHandler = GENERATED_RUN_PROVIDE;
-  protocol.handler(runHandler);
-  registerProtocolManifest(fabric, { manifest, handlers: { [runHandler]: handler } });
+): ProtocolRegistration {
+  const definition = parseProtocolManifest(manifest, { allowLegacyV02: false });
+  return fabric.install(definition, bindings(snapshot, executor), {
+    packageId: `pi-pe/generated/${snapshot.spec.id}`,
+    packageVersion: snapshot.spec.version,
+    buildId: definition.contractDigest,
+  });
 }
 
-export function unregisterOwnedGeneratedNodes(fabric: ProtocolFabric): void {
-  for (const node of fabric.registry().nodes) {
-    if (node.packageId?.startsWith("pi-pe/generated/") || (node.nodeId.startsWith(GENERATED_NODE_PREFIX) && node.tags?.includes("generated"))) {
-      fabric.unregister(node.nodeId);
-    }
-  }
+export async function replaceGeneratedPipeline(
+  registration: ProtocolRegistration,
+  manifest: ProtocolManifestV1,
+  snapshot: PipelineRuntimeSnapshot,
+  executor: PipelineExecutor,
+): Promise<void> {
+  await registration.replace(
+    parseProtocolManifest(manifest, { allowLegacyV02: false }),
+    bindings(snapshot, executor),
+  );
+}
+
+function bindings(snapshot: PipelineRuntimeSnapshot, executor: PipelineExecutor) {
+  const handler: ProtocolHandler = async (input, context) => (await executor.execute(snapshot, input, context)).output;
+  return { handlers: { [GENERATED_RUN_PROVIDE]: handler } };
 }

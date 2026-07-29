@@ -1,4 +1,4 @@
-import type { JsonSchemaLite } from "@kybernetria/pi-protocol";
+import type { JsonSchemaLite } from "@kybernetria/pi-protocol/core";
 import { deepCloneJson, isPlainObject } from "../schemas.ts";
 
 const BLOCKED_SEGMENTS = new Set(["__proto__", "prototype", "constructor"]);

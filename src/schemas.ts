@@ -1,4 +1,4 @@
-import type { JsonSchemaLite } from "@kybernetria/pi-protocol";
+import type { JsonSchemaLite } from "@kybernetria/pi-protocol/core";
 import type {
   Binding,
   DependencySnapshot,

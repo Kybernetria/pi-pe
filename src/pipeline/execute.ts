@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
-import { invokeFromCurrentContext, type ProtocolFabric } from "@kybernetria/pi-protocol";
+import { invokeFromCurrentContext, type ProtocolFabric } from "@kybernetria/pi-protocol/core";
 import { PREVIEW_MAX_CHARS } from "../config.ts";
 import { PipelineError } from "../errors.ts";
 import { deepCloneJson, deepFreeze, jsonByteLength, validateJsonSchemaValue } from "../schemas.ts";

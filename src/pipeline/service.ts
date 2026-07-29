@@ -1,8 +1,9 @@
-import type { PiProtocolManifest, ProtocolFabric, ProvideSnapshot } from "@kybernetria/pi-protocol";
+import type { ProtocolFabric, ProtocolRegistration, ProvideSnapshot } from "@kybernetria/pi-protocol/core";
+import type { ProtocolManifestV1 as PiProtocolManifest } from "@kybernetria/pi-protocol/contract";
 import { PipelineError } from "../errors.ts";
 import { createGeneratedManifest } from "../generated/manifest.ts";
-import { registerGeneratedPipeline, unregisterOwnedGeneratedNodes } from "../generated/register.ts";
-import { deepCloneJson, GENERATED_NODE_PREFIX, GENERATED_RUN_PROVIDE, generatedNodeId, generatedTarget, parsePipelineSpec, parseTarget } from "../schemas.ts";
+import { registerGeneratedPipeline, replaceGeneratedPipeline } from "../generated/register.ts";
+import { deepCloneJson, GENERATED_NODE_PREFIX, GENERATED_RUN_PROVIDE, generatedTarget, parsePipelineSpec, parseTarget } from "../schemas.ts";
 import { PipelineRepository } from "../storage/repository.ts";
 import type {
   DryRunStep,
@@ -40,6 +41,7 @@ export class PipelineService {
   private readonly entries = new Map<string, LoadedEntry>();
   private readonly executor: PipelineExecutor;
   private readonly mutex = new AsyncMutex();
+  private readonly registrations = new Map<string, ProtocolRegistration>();
 
   constructor(
     private readonly fabric: ProtocolFabric,
@@ -54,6 +56,13 @@ export class PipelineService {
 
   async reload(): Promise<PipelineStatus[]> {
     return this.mutex.run(async () => this.reconcileLocked());
+  }
+
+  async dispose(): Promise<void> {
+    await this.mutex.run(async () => {
+      await this.disposeGeneratedRegistrations();
+      this.entries.clear();
+    });
   }
 
   async validate(value: unknown): Promise<ValidationReport> {
@@ -219,9 +228,14 @@ export class PipelineService {
     }
   }
 
+  private async disposeGeneratedRegistrations(): Promise<void> {
+    const registrations = [...this.registrations.values()];
+    this.registrations.clear();
+    for (const registration of registrations) await registration.dispose();
+  }
+
   private async reconcileLocked(): Promise<PipelineStatus[]> {
     await this.repository.initialize();
-    unregisterOwnedGeneratedNodes(this.fabric);
     this.entries.clear();
     const records = await this.repository.readAll();
     const parsedSpecs = new Map<string, PipelineSpecV1>();
@@ -304,11 +318,22 @@ export class PipelineService {
       }
     }
 
+    const enabledIds = new Set([...this.entries.values()]
+      .filter((entry) => entry.status.status === "enabled" && entry.spec && entry.manifest)
+      .map((entry) => entry.id));
+    for (const [id, registration] of [...this.registrations]) {
+      if (enabledIds.has(id)) continue;
+      await registration.dispose();
+      this.registrations.delete(id);
+    }
+
     for (const entry of [...this.entries.values()].sort((left, right) => left.id.localeCompare(right.id))) {
       if (entry.status.status !== "enabled" || !entry.spec || !entry.manifest) continue;
       try {
         entry.snapshot = createRuntimeSnapshot(entry.spec);
-        registerGeneratedPipeline(this.fabric, entry.manifest, entry.snapshot, this.executor);
+        const current = this.registrations.get(entry.id);
+        if (current) await replaceGeneratedPipeline(current, entry.manifest, entry.snapshot, this.executor);
+        else this.registrations.set(entry.id, registerGeneratedPipeline(this.fabric, entry.manifest, entry.snapshot, this.executor));
         entry.status.registered = true;
       } catch (error) {
         entry.status.status = "quarantined";
@@ -330,7 +355,10 @@ export class PipelineService {
           return !dependency || dependency.status.status !== "enabled" || !dependency.status.registered;
         });
         if (!unavailable) continue;
-        if (entry.status.registered) this.fabric.unregister(generatedNodeId(entry.id));
+        if (entry.status.registered) {
+          await this.registrations.get(entry.id)?.dispose();
+          this.registrations.delete(entry.id);
+        }
         entry.status.status = "disabled";
         entry.status.registered = false;
         entry.snapshot = undefined;
@@ -370,8 +398,18 @@ function createDerivedTargets(specs: ReadonlyMap<string, PipelineSpecV1>, exclud
     if (excluded.has(target)) continue;
     const manifest = createGeneratedManifest(spec);
     const provide = manifest.provides[0];
-    const snapshot: ProvideSnapshot = { ...provide, nodeId: manifest.nodeId, globalId: target };
-    targets.set(target, { provide: snapshot, packageId: manifest.packageId, nodeVersion: manifest.version });
+    const snapshot: ProvideSnapshot = {
+      name: provide.name,
+      description: provide.description,
+      inputSchema: provide.inputSchema as never,
+      outputSchema: provide.outputSchema as never,
+      execution: { type: "handler", handler: GENERATED_RUN_PROVIDE },
+      ...(provide.tags ? { tags: [...provide.tags] } : {}),
+      ...(provide.effects ? { effects: [...provide.effects] } : {}),
+      nodeId: manifest.node.id,
+      globalId: target,
+    };
+    targets.set(target, { provide: snapshot, packageId: `pi-pe/generated/${spec.id}`, nodeVersion: spec.version });
   }
   return targets;
 }

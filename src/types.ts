@@ -2,12 +2,13 @@ import type {
   ExecutionSpec,
   InvokeErrorCode,
   JsonSchemaLite,
-  PiProtocolManifest,
   ProtocolInvocationContext,
   ProvideSnapshot,
-} from "@kybernetria/pi-protocol";
+} from "@kybernetria/pi-protocol/core";
+import type { ProtocolManifestV1 } from "@kybernetria/pi-protocol/contract";
 
-export type { JsonSchemaLite, PiProtocolManifest, ProtocolInvocationContext, ProvideSnapshot };
+export type PiProtocolManifest = ProtocolManifestV1;
+export type { JsonSchemaLite, ProtocolInvocationContext, ProvideSnapshot };
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };

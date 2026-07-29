@@ -1,4 +1,4 @@
-import type { JsonSchemaLite } from "@kybernetria/pi-protocol";
+import type { JsonSchemaLite } from "@kybernetria/pi-protocol/core";
 import { HARD_LIMITS } from "../config.ts";
 import { generatedTarget, parsePipelineSpec, parseTarget } from "../schemas.ts";
 import type {

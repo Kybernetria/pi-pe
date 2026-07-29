@@ -1,15 +1,15 @@
-import type { ProtocolFabric, ProtocolHandler, ProtocolNamespace } from "@kybernetria/pi-protocol";
+import type { ProtocolFabric, ProtocolHandler } from "@kybernetria/pi-protocol/core";
 import { MANAGEMENT_OUTPUT_MAX_BYTES } from "../config.ts";
 import { PipelineError } from "../errors.ts";
 import type { PipelineService } from "../pipeline/service.ts";
 import { catalogProvides, describeTarget, type CatalogFilter } from "./catalog.ts";
 
-export function createManagementHandlers(fabric: ProtocolFabric, service: PipelineService, protocol: ProtocolNamespace): Record<string, ProtocolHandler> {
+export function createManagementHandlers(fabric: ProtocolFabric, service: PipelineService, nodeId: string): Record<string, ProtocolHandler> {
   return {
-    catalog: async (input) => bound(catalogProvides(fabric, protocol.nodeId, asRecord(input) as CatalogFilter)),
+    catalog: async (input) => bound(catalogProvides(fabric, nodeId, asRecord(input) as CatalogFilter)),
     describe_target: async (input) => {
       const target = requiredString(asRecord(input), "target");
-      const description = describeTarget(fabric, protocol.nodeId, target);
+      const description = describeTarget(fabric, nodeId, target);
       if (!description) throw new PipelineError("DEPENDENCY_NOT_FOUND", `target is not registered: ${target}`);
       return bound(description);
     },

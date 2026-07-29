@@ -296,7 +296,7 @@ To recover, fix or remove the affected `pipeline.json`, then call `pi_pe.reload_
 - Inputs/outputs are not written to Pi-PE logs. Management diagnostics use bounded previews and SHA-256 hashes.
 - No branches, loops, joins, fan-out, parallel steps, retries, compensation, or cross-provide transactions are implemented in v1.
 - `JsonSchemaLite` supports only `type`, `required`, `properties`, `items`, `enum`, and `description`; broad schemas require explicit runtime-only review.
-- Generated-node replacement may have a short unregister/register gap because the fabric has no atomic replace primitive.
+- Generated-node replacement uses owned generation-pinned `ProtocolRegistration.replace()`; in-flight calls finish on their selected implementation without an unregister/register gap.
 
 ## Development
 

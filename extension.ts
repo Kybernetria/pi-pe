@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { ensureProtocolFabric } from "@kybernetria/pi-protocol";
+import { ensureProtocolFabric } from "@kybernetria/pi-protocol/core";
 export default async function piPipelineEngineExtension(pi: ExtensionAPI): Promise<void> {
   let PipelineService: typeof import("./src/pipeline/service.ts").PipelineService;
   let registerManagementNode: typeof import("./src/protocol/registration.ts").registerManagementNode;
@@ -18,6 +18,16 @@ export default async function piPipelineEngineExtension(pi: ExtensionAPI): Promi
 
   const fabric = ensureProtocolFabric();
   const service = new PipelineService(fabric);
-  registerManagementNode(fabric, service);
-  await service.initialize();
+  const managementRegistration = registerManagementNode(fabric, service);
+  try {
+    await service.initialize();
+  } catch (error) {
+    await managementRegistration.dispose();
+    await service.dispose();
+    throw error;
+  }
+  pi.on("session_shutdown", async () => {
+    await service.dispose();
+    await managementRegistration.dispose();
+  });
 }

@@ -1,4 +1,4 @@
-import type { ProtocolFabric, ProvideSnapshot } from "@kybernetria/pi-protocol";
+import type { ProtocolFabric, ProvideSnapshot } from "@kybernetria/pi-protocol/core";
 import { CATALOG_DEFAULT_LIMIT, CATALOG_MAX_LIMIT } from "../config.ts";
 import { parseTarget } from "../schemas.ts";
 import type { ResolvedTarget, TargetResolver } from "../types.ts";

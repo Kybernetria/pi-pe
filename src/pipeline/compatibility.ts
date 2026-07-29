@@ -1,4 +1,4 @@
-import type { JsonSchemaLite } from "@kybernetria/pi-protocol";
+import type { JsonSchemaLite } from "@kybernetria/pi-protocol/core";
 import type { DependencySnapshot, ResolvedTarget } from "../types.ts";
 import { canonicalStringify } from "../schemas.ts";
 import { hasMeaningfulSchema } from "./pointers.ts";

@@ -1,5 +1,5 @@
 import { lstat, mkdir, readFile, readdir, rm } from "node:fs/promises";
-import type { PiProtocolManifest } from "@kybernetria/pi-protocol";
+import type { ProtocolManifestV1 as PiProtocolManifest } from "@kybernetria/pi-protocol/contract";
 import { isSafeId } from "../schemas.ts";
 import type { PersistedIndexV1, PipelineSpecV1, PipelineStatus } from "../types.ts";
 import { atomicWriteFile } from "./atomic-write.ts";

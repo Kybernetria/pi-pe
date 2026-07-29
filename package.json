@@ -23,15 +23,21 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "npm run typecheck && node --import tsx --test test/*.test.ts"
+    "test": "npm run typecheck && node --import tsx --test test/*.test.ts",
+    "protocol:check": "pi-protocol check .",
+    "protocol:generate": "pi-protocol generate ."
   },
   "pi": {
     "extensions": [
       "./extension.ts"
     ]
   },
+  "piProtocol": {
+    "generated": "protocol.generated.ts"
+  },
   "dependencies": {
-    "@kybernetria/pi-protocol": "^1.0.10"
+    "@kybernetria/pi-protocol": "file:../pi-protocol/packages/pi-protocol",
+    "ajv": "8.18.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

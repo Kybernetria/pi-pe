@@ -33,8 +33,9 @@ test("save registers a stable generated handler and survives reconciliation", as
   assert.equal(persisted.dependencies.length, 2);
   assert.equal(persisted.review.runtimeOnly, false);
   const generated = JSON.parse(await readFile(join(root, "pipelines", "mapped", "pi.protocol.json"), "utf8"));
-  assert.equal(generated.nodeId, "pi_pe_pipeline_mapped");
+  assert.equal(generated.node.id, "pi_pe_pipeline_mapped");
 
+  await service.dispose();
   const replacementService = new PipelineService(fabric, new PipelineRepository(root));
   const statuses = await replacementService.initialize();
   assert.equal(statuses[0].status, "enabled");

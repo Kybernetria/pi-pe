@@ -74,7 +74,7 @@ export function registerMappedFixtures(fabric: ProtocolFabric, order: string[] =
           },
           outputSchema: { type: "object", required: ["result"], properties: { result: { type: "string" } } },
           execution: { type: "handler", handler: "wrap" },
-          effects: ["test_write"],
+          effects: ["fs.write"],
         },
       ],
     },
