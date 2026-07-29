@@ -1,0 +1,147 @@
+{
+  "protocolVersion": "0.2.0",
+  "nodeId": "pi_pe",
+  "packageId": "pi-pe",
+  "version": "0.1.0",
+  "purpose": "Discover, validate, persist, register, inspect, and execute deterministic linear pi-protocol pipelines.",
+  "tags": ["pipelines", "orchestration", "management"],
+  "display": {
+    "label": "Pi Pipeline Engine",
+    "accentToken": "accent",
+    "outputToken": "toolOutput",
+    "resultMode": "pipeline-management"
+  },
+  "provides": [
+    {
+      "name": "catalog",
+      "description": "Search or list compact protocol capability cards without dumping full schemas.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "nodeId": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "executionType": { "type": "string", "enum": ["handler", "agent"] },
+          "effects": { "type": "array", "items": { "type": "string" } },
+          "generated": { "type": "boolean" },
+          "limit": { "type": "integer" }
+        }
+      },
+      "outputSchema": { "type": "object" },
+      "execution": { "type": "handler", "handler": "catalog" },
+      "effects": ["protocol_registry_read"]
+    },
+    {
+      "name": "describe_target",
+      "description": "Describe one exact nodeId.provide contract, including full schemas and its canonical fingerprint.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["target"],
+        "properties": { "target": { "type": "string" } }
+      },
+      "outputSchema": { "type": "object" },
+      "execution": { "type": "handler", "handler": "describe_target" },
+      "effects": ["protocol_registry_read"]
+    },
+    {
+      "name": "validate_pipeline",
+      "description": "Validate a PipelineSpecV1 without writing or registering it.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["spec"],
+        "properties": { "spec": { "type": "object" } }
+      },
+      "outputSchema": { "type": "object" },
+      "execution": { "type": "handler", "handler": "validate_pipeline" },
+      "effects": ["protocol_registry_read"]
+    },
+    {
+      "name": "save_pipeline",
+      "description": "Validate, atomically persist, and register a pipeline. Runtime-only assurance requires explicit allowRuntimeOnly.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["spec"],
+        "properties": {
+          "spec": { "type": "object" },
+          "allowRuntimeOnly": { "type": "boolean" }
+        }
+      },
+      "outputSchema": { "type": "object" },
+      "execution": { "type": "handler", "handler": "save_pipeline" },
+      "effects": ["file_write", "protocol_registry_write"]
+    },
+    {
+      "name": "get_pipeline",
+      "description": "Retrieve one saved pipeline specification and its dependency/registration status.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id"],
+        "properties": { "id": { "type": "string" } }
+      },
+      "outputSchema": { "type": "object" },
+      "execution": { "type": "handler", "handler": "get_pipeline" },
+      "effects": ["file_read", "protocol_registry_read"]
+    },
+    {
+      "name": "list_pipelines",
+      "description": "List compact cards for saved, disabled, and quarantined pipelines.",
+      "inputSchema": { "type": "object" },
+      "outputSchema": { "type": "object" },
+      "execution": { "type": "handler", "handler": "list_pipelines" },
+      "effects": ["file_read"]
+    },
+    {
+      "name": "delete_pipeline",
+      "description": "Unregister and delete one saved pipeline after confirm is explicitly true.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id", "confirm"],
+        "properties": {
+          "id": { "type": "string" },
+          "confirm": { "type": "boolean" }
+        }
+      },
+      "outputSchema": { "type": "object" },
+      "execution": { "type": "handler", "handler": "delete_pipeline" },
+      "effects": ["file_write", "protocol_registry_write"]
+    },
+    {
+      "name": "run_pipeline",
+      "description": "Run a saved pipeline by ID and return a management envelope with bounded execution details.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["id", "input"],
+        "properties": {
+          "id": { "type": "string" }
+        }
+      },
+      "outputSchema": { "type": "object" },
+      "execution": { "type": "handler", "handler": "run_pipeline" },
+      "effects": ["protocol_invoke"]
+    },
+    {
+      "name": "dry_run_mapping",
+      "description": "Construct every step input from supplied pipeline input and fixture step outputs without invoking dependencies.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["pipelineInput"],
+        "properties": {
+          "id": { "type": "string" },
+          "spec": { "type": "object" },
+          "stepOutputs": { "type": "object" }
+        }
+      },
+      "outputSchema": { "type": "object" },
+      "execution": { "type": "handler", "handler": "dry_run_mapping" },
+      "effects": ["protocol_registry_read"]
+    },
+    {
+      "name": "reload_pipelines",
+      "description": "Re-read persisted specifications, validate the full graph, and reconcile generated registrations.",
+      "inputSchema": { "type": "object" },
+      "outputSchema": { "type": "object" },
+      "execution": { "type": "handler", "handler": "reload_pipelines" },
+      "effects": ["file_read", "file_write", "protocol_registry_write"]
+    }
+  ]
+}
