@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
-import { invokeFromCurrentContext, type ProtocolFabric } from "@kybernetria/pi-protocol/core";
+import { invokeTrackedFromCurrentContext, type InvokeRequest, type InvokeResult, type ProtocolFabric } from "@kybernetria/pi-protocol/core";
 import { PREVIEW_MAX_CHARS } from "../config.ts";
 import { PipelineError } from "../errors.ts";
 import { deepCloneJson, deepFreeze, jsonByteLength, validateJsonSchemaValue } from "../schemas.ts";
@@ -113,7 +113,7 @@ export class PipelineExecutor {
         const stepAbort = createCombinedAbort(pipelineAbort.signal);
         const stepTimeout = Math.min(step.timeoutMs ?? limits.timeoutMs, limits.timeoutMs);
         const stepTimer = setTimeout(() => stepAbort.abort("step_timeout"), stepTimeout);
-        let result: Awaited<ReturnType<ProtocolFabric["invoke"]>>;
+        let result: InvokeResult;
         try {
           const parsed = splitTarget(step.target);
           result = await invokeWithAbort(this.fabric, {
@@ -234,9 +234,9 @@ function splitTarget(target: string): { nodeId: string; provide: string } {
 
 async function invokeWithAbort(
   fabric: ProtocolFabric,
-  request: Parameters<typeof invokeFromCurrentContext>[1],
+  request: InvokeRequest,
   signal: AbortSignal,
-): ReturnType<ProtocolFabric["invoke"]> {
+): Promise<InvokeResult> {
   if (signal.aborted) throw abortException();
   let onAbort: (() => void) | undefined;
   const aborted = new Promise<never>((_, reject) => {
@@ -244,7 +244,8 @@ async function invokeWithAbort(
     signal.addEventListener("abort", onAbort, { once: true });
   });
   try {
-    return await Promise.race([invokeFromCurrentContext(fabric, request), aborted]);
+    const tracked = await Promise.race([invokeTrackedFromCurrentContext(fabric, request), aborted]);
+    return tracked.result;
   } finally {
     if (onAbort) signal.removeEventListener("abort", onAbort);
   }

@@ -41,7 +41,7 @@ export function installTestNode(fabric: ProtocolFabric, input: { node: TestNode;
       ...(provide.effects?.length ? { effects: provide.effects.map(normalizeEffect) } : {}),
       ...(provide.tags ? { tags: provide.tags } : {}),
     })),
-  }, { allowLegacyV02: false });
+  });
   const handlers = Object.fromEntries(input.node.provides.map((provide) => [provide.name, input.handlers[provide.execution.handler]]));
   const registration = fabric.install(definition, { handlers }, {
     packageId: input.node.packageId ?? `test/${input.node.nodeId}`,

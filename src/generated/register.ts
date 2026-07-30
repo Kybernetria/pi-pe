@@ -11,7 +11,7 @@ export function registerGeneratedPipeline(
   snapshot: PipelineRuntimeSnapshot,
   executor: PipelineExecutor,
 ): ProtocolRegistration {
-  const definition = parseProtocolManifest(manifest, { allowLegacyV02: false });
+  const definition = parseProtocolManifest(manifest);
   return fabric.install(definition, bindings(snapshot, executor), {
     packageId: `pi-pe/generated/${snapshot.spec.id}`,
     packageVersion: snapshot.spec.version,
@@ -26,7 +26,7 @@ export async function replaceGeneratedPipeline(
   executor: PipelineExecutor,
 ): Promise<void> {
   await registration.replace(
-    parseProtocolManifest(manifest, { allowLegacyV02: false }),
+    parseProtocolManifest(manifest),
     bindings(snapshot, executor),
   );
 }

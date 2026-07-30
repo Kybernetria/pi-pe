@@ -359,7 +359,7 @@ For a generated `run` or `run_pipeline` call:
    - check abort signal;
    - resolve bindings from pipeline input and completed outputs;
    - validate the constructed input against the current target input schema;
-   - invoke with `invokeFromCurrentContext()` so trace, parent span, caller, session, and abort signal propagate;
+   - invoke with `invokeTrackedFromCurrentContext()` so canonical causal context, session, and cancellation propagate;
    - enforce the step timeout through a composed `AbortController`;
    - on failure, stop immediately and return a step-qualified error;
    - bound the retained intermediate output and byte count;
@@ -371,7 +371,7 @@ A generated pipeline provide should return its declared business output directly
 
 ## 11. Trace, session, cancellation, and timeouts
 
-- call downstream provides with `invokeFromCurrentContext(fabric, request)`;
+- call downstream provides with `invokeTrackedFromCurrentContext(fabric, request)` and consume the tracked result plus receipt;
 - allow protocol to create child span IDs and canonical caller IDs;
 - preserve the incoming trace;
 - inherit only supported continuing sessions; otherwise use downstream defaults;
@@ -513,7 +513,7 @@ The command calls the same domain services as protocol handlers. It must not con
 - scaffold package and canonical schemaVersion 1 static manifest;
 - prove registry/describe/invoke behavior against installed protocol APIs;
 - register one in-memory generated handler node;
-- prove nested trace propagation with `invokeFromCurrentContext()`;
+- prove nested causal propagation with `invokeTrackedFromCurrentContext()`;
 - freeze `PipelineSpecV1`.
 
 Exit: a hard-coded two-step pass-through pipeline is discoverable and invokable.

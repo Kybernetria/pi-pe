@@ -1,3 +1,7 @@
+async function invokeResult(fabric: { invokeTracked(request: any): Promise<any> }, request: any): Promise<any> {
+  return (await fabric.invokeTracked(request)).result;
+}
+
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -25,7 +29,7 @@ test("save registers a stable generated handler and survives reconciliation", as
   assert.equal(saved.status.registered, true);
   assert(fabric.describeProvide("pi_pe_pipeline_mapped", "run"));
 
-  const invoked = await fabric.invoke({ nodeId: "pi_pe_pipeline_mapped", provide: "run", input: { text: "reload" } });
+  const invoked = await invokeResult(fabric, { nodeId: "pi_pe_pipeline_mapped", provide: "run", input: { text: "reload" } });
   assert.equal(invoked.ok, true);
   if (invoked.ok) assert.deepEqual(invoked.output, { result: "Result: RELOAD" });
 
@@ -39,7 +43,7 @@ test("save registers a stable generated handler and survives reconciliation", as
   const replacementService = new PipelineService(fabric, new PipelineRepository(root));
   const statuses = await replacementService.initialize();
   assert.equal(statuses[0].status, "enabled");
-  const reloaded = await fabric.invoke({ nodeId: "pi_pe_pipeline_mapped", provide: "run", input: { text: "again" } });
+  const reloaded = await invokeResult(fabric, { nodeId: "pi_pe_pipeline_mapped", provide: "run", input: { text: "again" } });
   assert.equal(reloaded.ok, true);
 });
 

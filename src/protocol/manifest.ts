@@ -4,7 +4,7 @@ import { parseProtocolManifest, type ProtocolDefinition } from "@kybernetria/pi-
 export function loadManagementProtocol(
   url = new URL("../../pi.protocol.json", import.meta.url),
 ): ProtocolDefinition {
-  return parseProtocolManifest(readFileSync(url, "utf8"), { allowLegacyV02: false });
+  return parseProtocolManifest(readFileSync(url, "utf8"));
 }
 
 export const loadManagementDefinition = loadManagementProtocol;

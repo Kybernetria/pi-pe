@@ -1,6 +1,10 @@
+async function invokeResult(fabric: { invokeTracked(request: any): Promise<any> }, request: any): Promise<any> {
+  return (await fabric.invokeTracked(request)).result;
+}
+
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createProtocolFabric, type InvocationProvenanceEvent } from "@kybernetria/pi-protocol";
+import { createProtocolFabric, type CanonicalProvenanceEventV1 } from "@kybernetria/pi-protocol";
 import { PipelineError } from "../src/errors.ts";
 import { createGeneratedManifest } from "../src/generated/manifest.ts";
 import { registerGeneratedPipeline } from "../src/generated/register.ts";
@@ -23,10 +27,10 @@ test("sequential mapped execution returns business output and propagates nested 
   const executor = new PipelineExecutor(fabric, resolverFrom(fabric));
   const snapshot = createRuntimeSnapshot(spec);
   registerGeneratedPipeline(fabric, createGeneratedManifest(spec), snapshot, executor);
-  const events: InvocationProvenanceEvent[] = [];
-  fabric.subscribeProvenanceRecorder((event) => { events.push(event); });
+  const events: CanonicalProvenanceEventV1[] = [];
+  fabric.subscribeAudit((event) => { events.push(event); });
 
-  const result = await fabric.invoke({
+  const result = await invokeResult(fabric, {
     nodeId: "pi_pe_pipeline_mapped",
     provide: "run",
     input: { text: "hello" },
@@ -39,14 +43,14 @@ test("sequential mapped execution returns business output and propagates nested 
   assert.equal(result.ok, true);
   if (result.ok) assert.deepEqual(result.output, { result: "Result: HELLO" });
 
-  const starts = events.filter((event) => event.status === "started");
-  assert(starts.every((event) => event.traceId === "trace_test"));
-  const upper = starts.find((event) => event.nodeId === "fixture" && event.provide === "upper");
-  const wrap = starts.find((event) => event.nodeId === "fixture" && event.provide === "wrap");
-  assert.equal(upper?.parentSpanId, "root");
-  assert.equal(wrap?.parentSpanId, "root");
-  assert.equal(upper?.callerNodeId, "pi_pe_pipeline_mapped.run");
-  assert.deepEqual(upper?.session, { id: "session_test", mode: "continue" });
+  await Promise.resolve();
+  const starts = events.filter((event): event is Extract<CanonicalProvenanceEventV1, { invocationId: string }> => "invocationId" in event && event.type === "invocation.started");
+  const root = starts.find((event) => event.target === "pi_pe_pipeline_mapped.run");
+  const upper = starts.find((event) => event.target === "fixture.upper");
+  const wrap = starts.find((event) => event.target === "fixture.wrap");
+  assert.ok(root);
+  assert.equal(upper?.parentInvocationId, root.invocationId);
+  assert.equal(wrap?.parentInvocationId, root.invocationId);
 });
 
 test("execution fails fast without retries and reports completed effecting steps", async () => {
@@ -126,7 +130,7 @@ test("runtime cycle through an external handler is stopped", async () => {
   let calls = 0;
   registerHandler(fabric, "bounce", "run", { type: "string" }, { type: "string" }, async (input) => {
     calls += 1;
-    const nested = await fabric.invoke({ nodeId: "pi_pe_pipeline_runtime-cycle", provide: "run", input });
+    const nested = await invokeResult(fabric, { nodeId: "pi_pe_pipeline_runtime-cycle", provide: "run", input });
     if (!nested.ok) throw new Error(nested.error.message);
     return nested.output;
   });

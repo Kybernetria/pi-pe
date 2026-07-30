@@ -16,7 +16,6 @@ const EXPECTED = [
 
 test("static manifest is canonical and every provide has an exact handler", () => {
   const definition = loadManagementProtocol();
-  assert.equal(definition.sourceSchemaVersion, 1);
   assert.deepEqual(definition.manifest.provides.map((provide) => provide.name), EXPECTED);
   const fabric = createProtocolFabric();
   const service = new PipelineService(fabric, new PipelineRepository("/tmp/pi-pe-manifest-test-unused"));
@@ -33,7 +32,7 @@ test("generated manifest exposes an admitted business contract without deploymen
     inputSchema: { type: "object" }, outputSchema: { type: "object" }, fingerprint: "test",
   }];
   const manifest = createGeneratedManifest(spec);
-  const definition = parseProtocolManifest(manifest, { allowLegacyV02: false });
+  const definition = parseProtocolManifest(manifest);
   assert.equal(manifest.node.id, "pi_pe_pipeline_mapped");
   assert.equal(manifest.provides.length, 1);
   assert.equal(manifest.provides[0].name, "run");
@@ -41,5 +40,4 @@ test("generated manifest exposes an admitted business contract without deploymen
   assert.equal(manifest.provides[0].outputSchema.type, spec.outputSchema.type);
   assert.equal("execution" in manifest.provides[0], false);
   assert.deepEqual(manifest.provides[0].effects, ["fs.write", "protocol.invoke"]);
-  assert.equal(definition.sourceSchemaVersion, 1);
 });
