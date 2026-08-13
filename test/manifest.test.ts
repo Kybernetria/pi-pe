@@ -41,3 +41,13 @@ test("generated manifest exposes an admitted business contract without deploymen
   assert.equal("execution" in manifest.provides[0], false);
   assert.deepEqual(manifest.provides[0].effects, ["fs.write", "protocol.invoke"]);
 });
+
+test("generated schemas preserve closed objects and make open defaults explicit", async () => {
+  const spec = await fixture("mapped.pipeline.json");
+  spec.inputSchema = { type: "object", properties: { text: { type: "string" } }, additionalProperties: false };
+  spec.outputSchema = { type: "object", properties: { result: { type: "string" } }, additionalProperties: true };
+  const manifest = createGeneratedManifest(spec);
+  assert.equal(manifest.provides[0].inputSchema.additionalProperties, false);
+  assert.equal(manifest.provides[0].outputSchema.additionalProperties, true);
+  assert.equal(createGeneratedManifest({ ...spec, outputSchema: { type: "object", properties: { result: { type: "string" } } } }).provides[0].outputSchema.additionalProperties, true);
+});

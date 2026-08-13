@@ -261,7 +261,7 @@ Optional spec limits:
 
 Hard ceilings are 100 steps, 10 MiB retained intermediates, 10 minutes, nested depth 16, and 1,000 downstream invocations. Individual steps may declare `timeoutMs`.
 
-Execution is linear and fail-fast. Pi-PE performs **zero retries** and claims no rollback. On failure, diagnostics identify completed effect-declaring steps. Downstream policy enforcement remains authoritative.
+Execution is linear and fail-fast. Pi-PE performs **zero retries** and claims no rollback. Diagnostics record every dispatched effect-declaring step as `attempted`, `confirmed`, or `unknown`; no uncertain invocation is reported as completed. Downstream policy enforcement remains authoritative.
 
 Error categories include `PIPELINE_NOT_FOUND`, `PIPELINE_INVALID`, `DEPENDENCY_NOT_FOUND`, `DEPENDENCY_CHANGED`, `MAPPING_FAILED`, `STEP_INPUT_INVALID`, `STEP_FAILED`, `STEP_OUTPUT_TOO_LARGE`, `PIPELINE_TIMEOUT`, `PIPELINE_ABORTED`, `PIPELINE_CYCLE`, and `FINAL_OUTPUT_INVALID`.
 

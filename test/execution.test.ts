@@ -91,6 +91,27 @@ test("execution fails fast without retries and reports completed effecting steps
   assert.equal(secondCalls, 1);
 });
 
+test("effect diagnostics preserve unknown outcomes for throwing and cancelled calls", async () => {
+  const fabric = createProtocolFabric();
+  registerHandler(fabric, "effect_failure", "run", { type: "string" }, { type: "string" }, () => {
+    throw new Error("effect may have happened");
+  }, ["fs.write"]);
+  const base = await fixture("passthrough.pipeline.json");
+  const spec = await materialize({
+    ...base,
+    id: "effect-failure",
+    steps: [{ id: "run", target: "effect_failure.run", input: { mode: "pass", from: { source: "pipeline_input" } } }],
+  }, fabric);
+  const executor = new PipelineExecutor(fabric, resolverFrom(fabric));
+  await assert.rejects(() => executor.execute(createRuntimeSnapshot(spec), "x"), (error) => {
+    if (!(error instanceof PipelineError)) return false;
+    const execution = error.details?.execution as { dispatchedSideEffects: Array<{ status: string }>; completedSideEffectingSteps: unknown[] };
+    assert.deepEqual(execution.dispatchedSideEffects.map((item) => item.status), ["unknown"]);
+    assert.equal(execution.completedSideEffectingSteps.length, 0);
+    return true;
+  });
+});
+
 test("step timeout and caller cancellation are classified separately", async () => {
   const create = async (id: string, timeoutMs: number) => {
     const fabric = createProtocolFabric();
@@ -105,7 +126,7 @@ test("step timeout and caller cancellation are classified separately", async () 
         }, { once: true });
       });
       return input;
-    });
+    }, ["fs.write"]);
     const base = await fixture("passthrough.pipeline.json");
     const raw: PipelineSpecV1 = { ...base, id, limits: { timeoutMs: 1_000 }, steps: [{ id: "wait", target: "slow.wait", input: { mode: "pass", from: { source: "pipeline_input" } }, timeoutMs }] };
     return { fabric, spec: await materialize(raw, fabric) };
@@ -121,8 +142,34 @@ test("step timeout and caller cancellation are classified separately", async () 
   setTimeout(() => controller.abort(), 20);
   await assert.rejects(
     () => cancelledExecutor.execute(createRuntimeSnapshot(cancelled.spec), "x", { nodeId: "test", provide: "run", abortSignal: controller.signal }),
-    (error) => error instanceof PipelineError && error.code === "PIPELINE_ABORTED",
+    (error) => {
+      if (!(error instanceof PipelineError) || error.code !== "PIPELINE_ABORTED") return false;
+      const execution = error.details?.execution as { dispatchedSideEffects: Array<{ status: string }> };
+      assert.deepEqual(execution.dispatchedSideEffects.map((item) => item.status), ["unknown"]);
+      return true;
+    },
   );
+});
+
+test("shutdown cancels active runs within the bounded shutdown window", async () => {
+  const fabric = createProtocolFabric();
+  registerHandler(fabric, "shutdown_slow", "wait", { type: "string" }, { type: "string" }, async (input, context) => {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, 5_000);
+      context?.abortSignal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+      }, { once: true });
+    });
+    return input;
+  });
+  const base = await fixture("passthrough.pipeline.json");
+  const spec = await materialize({ ...base, id: "shutdown", steps: [{ id: "wait", target: "shutdown_slow.wait", input: { mode: "pass", from: { source: "pipeline_input" } } }] }, fabric);
+  const executor = new PipelineExecutor(fabric, resolverFrom(fabric));
+  const running = executor.execute(createRuntimeSnapshot(spec), "x");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await executor.shutdown(1_000);
+  await assert.rejects(running, (error) => error instanceof PipelineError && error.code === "PIPELINE_ABORTED");
 });
 
 test("runtime cycle through an external handler is stopped", async () => {
@@ -150,9 +197,41 @@ test("runtime cycle through an external handler is stopped", async () => {
   assert.equal(calls, 1);
 });
 
+test("real fabric keeps an abort-ignoring effect pending through shutdown", async () => {
+  const fabric = createProtocolFabric();
+  let finish!: () => void;
+  const finished = new Promise<void>((resolve) => { finish = resolve; });
+  registerHandler(fabric, "real_shutdown_effect", "run", { type: "string" }, { type: "string" }, async () => {
+    await finished;
+    return "finished";
+  }, ["fs.write"]);
+  const base = await fixture("passthrough.pipeline.json");
+  const spec = await materialize({
+    ...base,
+    id: "real-shutdown-effect",
+    steps: [{ id: "run", target: "real_shutdown_effect.run", input: { mode: "pass", from: { source: "pipeline_input" } } }],
+  }, fabric);
+  const executor = new PipelineExecutor(fabric, resolverFrom(fabric));
+  const controller = new AbortController();
+  const running = executor.execute(createRuntimeSnapshot(spec), "x", { nodeId: "test", provide: "run", abortSignal: controller.signal });
+  setTimeout(() => controller.abort(), 10);
+  await assert.rejects(running, (error) => error instanceof PipelineError && error.code === "PIPELINE_ABORTED");
+
+  const pending = await executor.shutdown(20);
+  assert.equal(pending.drained, false);
+  assert.equal(pending.activeRunsDrained, true);
+  assert.equal(pending.detachedDownstreamInvocationsDrained, false);
+  assert.equal(pending.pendingDetachedDownstreamInvocations, 1);
+
+  finish();
+  const drained = await executor.shutdown(1_000);
+  assert.equal(drained.drained, true);
+  assert.equal(drained.pendingDetachedDownstreamInvocations, 0);
+});
+
 test("oversized intermediate outputs and changed pinned dependencies are refused", async () => {
   const fabric = createProtocolFabric();
-  registerHandler(fabric, "large", "run", { type: "string" }, { type: "string" }, () => "x".repeat(1_000));
+  registerHandler(fabric, "large", "run", { type: "string" }, { type: "string" }, () => "x".repeat(1_000), ["fs.write"]);
   const base = await fixture("passthrough.pipeline.json");
   const spec = await materialize({
     ...base,
@@ -161,7 +240,13 @@ test("oversized intermediate outputs and changed pinned dependencies are refused
     steps: [{ id: "large", target: "large.run", input: { mode: "pass", from: { source: "pipeline_input" } } }],
   }, fabric);
   const executor = new PipelineExecutor(fabric, resolverFrom(fabric));
-  await assert.rejects(() => executor.execute(createRuntimeSnapshot(spec), "x"), (error) => error instanceof PipelineError && error.code === "STEP_OUTPUT_TOO_LARGE");
+  await assert.rejects(() => executor.execute(createRuntimeSnapshot(spec), "x"), (error) => {
+    if (!(error instanceof PipelineError) || error.code !== "STEP_OUTPUT_TOO_LARGE") return false;
+    const execution = error.details?.execution as { steps: Array<{ status: string }>; completedSideEffectingSteps: unknown[] };
+    assert.equal(execution.steps[0]?.status, "succeeded");
+    assert.equal(execution.completedSideEffectingSteps.length, 1);
+    return true;
+  });
 
   await disposeTestNode(fabric, "large");
   registerHandler(fabric, "large", "run", { type: "number" }, { type: "string" }, () => "changed", [], "2.0.0");

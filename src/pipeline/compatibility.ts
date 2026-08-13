@@ -75,14 +75,23 @@ function compareObjects(
   reasons: string[],
   seen: Set<string>,
 ): CompatibilityKind {
-  if (!source.properties || !destination.properties) {
-    reasons.push(`${path} uses a generic object schema`);
+  const sourceProperties = source.properties ?? {};
+  const destinationProperties = destination.properties ?? {};
+  const sourceClosed = source.additionalProperties === false;
+  if (!source.properties && !sourceClosed) {
+    reasons.push(`${path} source object shape is broad`);
     return "unknown";
   }
+  const destinationClosed = destination.additionalProperties === false;
   let result: CompatibilityKind = "compatible";
+
+  if (!sourceClosed && destinationClosed) {
+    reasons.push(`${path} source may contain properties rejected by the closed destination`);
+    result = combine(result, "unknown");
+  }
+
   for (const property of destination.required ?? []) {
-    const sourceProperty = source.properties[property];
-    const destinationProperty = destination.properties[property];
+    const sourceProperty = sourceProperties[property];
     if (!sourceProperty) {
       reasons.push(`${path}.${property} is required by destination but absent from source`);
       return "incompatible";
@@ -91,13 +100,28 @@ function compareObjects(
       reasons.push(`${path}.${property} is required by destination but optional in source`);
       return "incompatible";
     }
+  }
+
+  // Optional destination properties still matter: a source may include them,
+  // and every such value must be accepted by the destination.
+  for (const [property, sourceProperty] of Object.entries(sourceProperties)) {
+    const destinationProperty = destinationProperties[property];
     if (!destinationProperty) {
-      reasons.push(`${path}.${property} has no destination property schema`);
-      result = combine(result, "unknown");
+      if (destinationClosed && sourceClosed) {
+        reasons.push(`${path}.${property} is declared by source but rejected by the closed destination`);
+        return "incompatible";
+      }
       continue;
     }
     result = combine(result, compare(sourceProperty, destinationProperty, `${path}.${property}`, reasons, seen));
     if (result === "incompatible") return result;
+  }
+
+  for (const [property, destinationProperty] of Object.entries(destinationProperties)) {
+    if (sourceProperties[property]) continue;
+    if (sourceClosed) continue; // The source cannot emit an undeclared property.
+    reasons.push(`${path}.${property} is optional in destination but unconstrained in source`);
+    result = combine(result, "unknown");
   }
   return result;
 }

@@ -10,6 +10,7 @@ export type PipelineErrorCode =
   | "PIPELINE_TIMEOUT"
   | "PIPELINE_ABORTED"
   | "PIPELINE_CYCLE"
+  | "PIPELINE_REENTRANT_MUTATION"
   | "FINAL_OUTPUT_INVALID";
 
 export class PipelineError extends Error {

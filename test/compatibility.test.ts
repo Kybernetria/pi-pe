@@ -39,3 +39,27 @@ test("broad and generic schemas are runtime-only unknown", () => {
   assert.equal(checkSchemaCompatibility({}, { type: "string" }).kind, "unknown");
   assert.equal(checkSchemaCompatibility({ type: "object" }, { type: "object" }).kind, "unknown");
 });
+
+test("object proofs account for optional properties and closed boundaries", () => {
+  const source = {
+    type: "object" as const,
+    required: ["id"],
+    properties: { id: { type: "string" as const }, optional: { type: "number" as const } },
+    additionalProperties: false,
+  };
+  const destination = {
+    type: "object" as const,
+    required: ["id"],
+    properties: { id: { type: "string" as const }, optional: { type: "string" as const } },
+    additionalProperties: false,
+  };
+  assert.equal(checkSchemaCompatibility(source, destination).kind, "incompatible");
+  assert.equal(checkSchemaCompatibility(
+    { type: "object", required: ["id"], properties: { id: { type: "string" } }, additionalProperties: false },
+    { type: "object", required: ["id"], properties: { id: { type: "string" }, optional: { type: "string" } }, additionalProperties: false },
+  ).kind, "compatible");
+  assert.equal(checkSchemaCompatibility(
+    { type: "object", required: ["id"], properties: { id: { type: "string" } } },
+    { type: "object", properties: { id: { type: "string" } }, additionalProperties: false },
+  ).kind, "unknown");
+});

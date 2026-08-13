@@ -36,7 +36,8 @@
     "generated": "protocol.generated.ts"
   },
   "dependencies": {
-    "@kybernetria/pi-protocol": "https://github.com/Kybernetria/pi-protocol/releases/download/v4.0.0/kybernetria-pi-protocol-4.0.0.tgz"
+    "@kybernetria/pi-protocol": "https://github.com/Kybernetria/pi-protocol/releases/download/v4.0.0/kybernetria-pi-protocol-4.0.0.tgz",
+    "fs-ext-extra-prebuilt": "^2.2.11"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"

@@ -1,5 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ensureProtocolFabric } from "@kybernetria/pi-protocol/core";
+
+const REGISTRATION_DRAIN_TIMEOUT_MS = 5_000;
 export default async function piPipelineEngineExtension(pi: ExtensionAPI): Promise<void> {
   let PipelineService: typeof import("./src/pipeline/service.ts").PipelineService;
   let registerManagementNode: typeof import("./src/protocol/registration.ts").registerManagementNode;
@@ -22,12 +24,31 @@ export default async function piPipelineEngineExtension(pi: ExtensionAPI): Promi
   try {
     await service.initialize();
   } catch (error) {
-    await managementRegistration.dispose();
     await service.dispose();
+    await disposeRegistrationBounded(managementRegistration, REGISTRATION_DRAIN_TIMEOUT_MS);
     throw error;
   }
   pi.on("session_shutdown", async () => {
     await service.dispose();
-    await managementRegistration.dispose();
+    await disposeRegistrationBounded(managementRegistration, REGISTRATION_DRAIN_TIMEOUT_MS);
   });
+}
+
+export async function disposeRegistrationBounded(
+  registration: { dispose(): Promise<void> },
+  timeoutMs = REGISTRATION_DRAIN_TIMEOUT_MS,
+): Promise<boolean> {
+  const disposal = registration.dispose();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); });
+  try {
+    const disposed = await Promise.race([disposal.then(() => true as const), timeout]);
+    if (!disposed) {
+      void disposal.catch((error) => console.error("[pi-pe] management registration disposal failed after timeout", error));
+      console.error(`[pi-pe] management registration drain exceeded ${timeoutMs}ms`);
+    }
+    return disposed;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }

@@ -1,6 +1,9 @@
-import { lstat, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { chmod, lstat, mkdir, open, readFile, readdir, rm } from "node:fs/promises";
+import { performance } from "node:perf_hooks";
 import type { ProtocolManifestV1 as PiProtocolManifest } from "@kybernetria/pi-protocol/contract";
+import { flock } from "fs-ext-extra-prebuilt";
 import { isSafeId } from "../schemas.ts";
+import { MUTATION_LOCK_TIMEOUT_MS } from "../config.ts";
 import type { PersistedIndexV1, PipelineSpecV1, PipelineStatus } from "../types.ts";
 import { atomicWriteFile } from "./atomic-write.ts";
 import {
@@ -32,9 +35,21 @@ export class PipelineRepository {
   }
 
   async initialize(): Promise<void> {
-    await mkdir(this.paths.pipelines, { recursive: true, mode: 0o700 });
+    await mkdir(this.paths.root, { recursive: true, mode: 0o700 });
     await assertDirectoryNotSymlink(this.paths.root);
+    await mkdir(this.paths.pipelines, { recursive: true, mode: 0o700 });
     await assertDirectoryNotSymlink(this.paths.pipelines);
+    await ensureMutationLockFile(this.paths.mutationLock);
+  }
+
+  async withMutationLock<T>(operation: (signal?: AbortSignal) => Promise<T>, timeoutMs = MUTATION_LOCK_TIMEOUT_MS): Promise<T> {
+    await this.initialize();
+    const lock = await acquireMutationLock(this.paths.mutationLock, timeoutMs);
+    try {
+      return await operation();
+    } finally {
+      await lock.release();
+    }
   }
 
   async readAll(): Promise<RepositoryRecord[]> {
@@ -151,4 +166,57 @@ async function assertDirectoryNotSymlink(path: string): Promise<void> {
 
 function isNotFound(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ENOENT";
+}
+
+async function acquireMutationLock(path: string, timeoutMs: number): Promise<{ release: () => Promise<void> }> {
+  const handle = await open(path, "r+");
+  const deadline = performance.now() + Math.max(0, timeoutMs);
+  try {
+    while (true) {
+      try {
+        await flockAsync(handle.fd, "exnb");
+        return {
+          release: async () => {
+            try { await flockAsync(handle.fd, "un"); }
+            finally { await handle.close(); }
+          },
+        };
+      } catch (error) {
+        if (!isLockUnavailable(error)) throw error;
+        if (performance.now() >= deadline) throw lockTimeout(timeoutMs);
+        await new Promise((resolve) => setTimeout(resolve, Math.min(25, Math.max(1, deadline - performance.now()))));
+      }
+    }
+  } catch (error) {
+    await handle.close().catch(() => undefined);
+    if ("lockTimeout" in Object(error)) throw error;
+    throw new Error(`could not acquire pipeline mutation lock: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function flockAsync(fd: number, flags: "exnb" | "un"): Promise<void> {
+  return new Promise((resolve, reject) => flock(fd, flags, (error) => error ? reject(error) : resolve()));
+}
+
+async function ensureMutationLockFile(path: string): Promise<void> {
+  try {
+    const stats = await lstat(path);
+    if (!stats.isFile() || stats.isSymbolicLink()) throw new Error(`Expected a regular mutation lock file: ${path}`);
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+    const handle = await open(path, "a", 0o600);
+    await handle.close();
+  }
+  await chmod(path, 0o600);
+  const stats = await lstat(path);
+  if (!stats.isFile() || stats.isSymbolicLink()) throw new Error(`Expected a regular mutation lock file: ${path}`);
+}
+
+function lockTimeout(timeoutMs: number): Error & { lockTimeout: true } {
+  return Object.assign(new Error(`timed out waiting for pipeline mutation lock after ${timeoutMs}ms`), { lockTimeout: true as const });
+}
+
+function isLockUnavailable(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error
+    && ["EAGAIN", "EACCES", "EWOULDBLOCK"].includes(String((error as { code?: unknown }).code));
 }

@@ -152,6 +152,15 @@ export interface StepTrace {
   downstreamCode?: InvokeErrorCode;
 }
 
+export type SideEffectStatus = "attempted" | "confirmed" | "unknown";
+
+export interface DispatchedSideEffect {
+  stepId: string;
+  target: string;
+  effects: string[];
+  status: SideEffectStatus;
+}
+
 export interface PipelineExecutionDetails {
   runId: string;
   pipelineId: string;
@@ -159,6 +168,9 @@ export interface PipelineExecutionDetails {
   status: "succeeded" | "failed" | "aborted";
   durationMs: number;
   steps: StepTrace[];
+  /** Every effecting invocation dispatched to a dependency, including uncertain failures. */
+  dispatchedSideEffects: DispatchedSideEffect[];
+  /** Compatibility view containing only invocations whose downstream call returned successfully. */
   completedSideEffectingSteps: Array<{ stepId: string; target: string; effects: string[] }>;
 }
 
