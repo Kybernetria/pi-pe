@@ -46,6 +46,17 @@ test("later-step references, unmapped required inputs, and self references fail"
   assert(validatePipelineCandidate(self, resolverFrom(fabric)).report.errors.some((error) => error.code === "SELF_REFERENCE"));
 });
 
+test("candidate specs reject deep and oversized values before recursive validation", async () => {
+  const fabric = createProtocolFabric();
+  const base = await fixture("passthrough.pipeline.json");
+  let deep: Record<string, unknown> = { type: "string" };
+  for (let index = 0; index < 70; index += 1) deep = { type: "object", properties: { child: deep } };
+  const deepReport = validatePipelineCandidate({ ...base, inputSchema: deep }, resolverFrom(fabric)).report;
+  assert(deepReport.errors.some((error) => error.code === "SPEC_TOO_DEEP"));
+  const oversizedReport = validatePipelineCandidate({ ...base, description: "x".repeat(2 * 1024 * 1024) }, resolverFrom(fabric)).report;
+  assert(oversizedReport.errors.some((error) => error.code === "SPEC_TOO_LARGE"));
+});
+
 test("broad pass-through schemas require runtime-only review", async () => {
   const fabric = createProtocolFabric();
   installTestNode(fabric, {

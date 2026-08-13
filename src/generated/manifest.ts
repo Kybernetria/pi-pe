@@ -65,6 +65,7 @@ function canonicalSchema(schema: JsonSchemaLite): ProtocolJsonSchema {
     result.properties = Object.fromEntries(Object.entries(schema.properties).map(([name, child]) => [name, canonicalSchema(child)]));
   }
   if (schema.items !== undefined) result.items = canonicalSchema(schema.items);
-  if (schema.type === "object") result.additionalProperties = schema.properties === undefined;
+  if (schema.additionalProperties !== undefined) result.additionalProperties = schema.additionalProperties;
+  else if (schema.type === "object" || schema.properties !== undefined || schema.required !== undefined) result.additionalProperties = true;
   return result as unknown as ProtocolJsonSchema;
 }

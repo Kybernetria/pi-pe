@@ -1,5 +1,7 @@
+import { performance } from "node:perf_hooks";
 import type { ProtocolFabric, ProtocolRegistration, ProvideSnapshot } from "@kybernetria/pi-protocol/core";
 import type { ProtocolManifestV1 as PiProtocolManifest } from "@kybernetria/pi-protocol/contract";
+import { SHUTDOWN_TIMEOUT_MS } from "../config.ts";
 import { PipelineError } from "../errors.ts";
 import { createGeneratedManifest } from "../generated/manifest.ts";
 import { registerGeneratedPipeline, replaceGeneratedPipeline } from "../generated/register.ts";
@@ -18,7 +20,7 @@ import type {
 } from "../types.ts";
 import { findPipelineCycles, cycleTargets, assertPipelinesAcyclic } from "./cycles.ts";
 import { checkPipelineDependencies } from "./dependencies.ts";
-import { PipelineExecutor, createRuntimeSnapshot } from "./execute.ts";
+import { PipelineExecutor, createRuntimeSnapshot, hasActivePipelineExecution } from "./execute.ts";
 import { constructStepInput, selectPipelineOutput } from "./map-input.ts";
 import { validateJsonSchemaValue } from "../schemas.ts";
 import { createFabricTargetResolver } from "../protocol/catalog.ts";
@@ -37,17 +39,27 @@ export interface SavePipelineOptions {
   allowRuntimeOnly?: boolean;
 }
 
+export interface PipelineDisposeResult {
+  status: "completed" | "degraded";
+  activeRunsDrained: boolean;
+  detachedDownstreamInvocationsDrained: boolean;
+  pendingDetachedDownstreamInvocations: number;
+  registrations: Array<{ nodeId: string; status: "disposed" | "timed_out" | "failed"; error?: string }>;
+}
+
 export class PipelineService {
   private readonly entries = new Map<string, LoadedEntry>();
   private readonly executor: PipelineExecutor;
   private readonly mutex = new AsyncMutex();
   private readonly registrations = new Map<string, ProtocolRegistration>();
+  private disposePromise?: Promise<PipelineDisposeResult>;
+  private closing = false;
 
   constructor(
     private readonly fabric: ProtocolFabric,
     readonly repository = new PipelineRepository(),
   ) {
-    this.executor = new PipelineExecutor(fabric, createFabricTargetResolver(fabric));
+    this.executor = new PipelineExecutor(fabric, (target) => this.resolveRuntimeTarget(target));
   }
 
   async initialize(): Promise<PipelineStatus[]> {
@@ -55,14 +67,55 @@ export class PipelineService {
   }
 
   async reload(): Promise<PipelineStatus[]> {
-    return this.mutex.run(async () => this.reconcileLocked());
+    this.assertMutationAdmission();
+    return this.mutex.run(() => this.repository.withMutationLock((lockSignal) => {
+      this.assertMutationAdmission(lockSignal);
+      return this.reconcileLocked(lockSignal);
+    }));
   }
 
-  async dispose(): Promise<void> {
-    await this.mutex.run(async () => {
-      await this.disposeGeneratedRegistrations();
-      this.entries.clear();
-    });
+  async dispose(): Promise<PipelineDisposeResult> {
+    if (this.disposePromise) return this.disposePromise;
+    this.closing = true;
+    // Abort active work and establish the deadline before waiting for a save,
+    // delete, or reload that may currently own the mutation mutex.
+    const deadline = performance.now() + SHUTDOWN_TIMEOUT_MS;
+    const shutdownPromise = this.executor.shutdown(remainingMs(deadline));
+    this.disposePromise = (async () => {
+      const cleanup = await this.mutex.runUntil(deadline, async () => {
+        const shutdown = await shutdownPromise;
+        const registrations = await this.disposeGeneratedRegistrations(deadline);
+        this.entries.clear();
+        return createDisposeResult(shutdown, registrations);
+      });
+      if (!cleanup.acquired) {
+        void this.mutex.run(async () => {
+          const eventualDeadline = performance.now() + SHUTDOWN_TIMEOUT_MS;
+          await this.disposeGeneratedRegistrations(eventualDeadline);
+          this.entries.clear();
+        }).catch((error) => console.error("[pi-pe] eventual shutdown cleanup failed", error));
+      }
+      const result = cleanup.acquired
+        ? cleanup.value
+        : {
+          ...createDisposeResult(await shutdownPromise, [
+            ...[...this.registrations.values()].map((registration) => ({
+              nodeId: registration.nodeId,
+              status: "timed_out" as const,
+              error: "mutation mutex acquisition exceeded shutdown deadline",
+            })),
+            ...(!this.registrations.size ? [{
+              nodeId: "(mutation-mutex)",
+              status: "timed_out" as const,
+              error: "mutation mutex acquisition exceeded shutdown deadline",
+            }] : []),
+          ]),
+          status: "degraded" as const,
+        };
+      if (result.status === "degraded") console.warn("[pi-pe] shutdown degraded", JSON.stringify(result));
+      return result;
+    })();
+    return this.disposePromise;
   }
 
   async validate(value: unknown): Promise<ValidationReport> {
@@ -84,7 +137,10 @@ export class PipelineService {
   }
 
   async save(value: unknown, options: SavePipelineOptions = {}): Promise<{ spec: PipelineSpecV1; status: PipelineStatus; generatedTarget: string }> {
-    return this.mutex.run(async () => {
+    this.assertMutationAdmission();
+    return this.mutex.run(() => this.repository.withMutationLock(async (lockSignal) => {
+      this.assertMutationAdmission(lockSignal);
+      await this.reconcileLocked(lockSignal);
       const parsed = parsePipelineSpec(value);
       if (!parsed.spec) throw new PipelineError("PIPELINE_INVALID", "pipeline specification is malformed", { report: invalidReport(parsed.errors) });
       const existing = this.entries.get(parsed.spec.id)?.spec;
@@ -115,9 +171,11 @@ export class PipelineService {
       };
       const manifest = createGeneratedManifest(materialized);
       const previousFiles = await this.repository.snapshot(materialized.id);
+      this.assertMutationAdmission(lockSignal);
       await this.repository.persist(materialized, manifest);
       try {
-        await this.reconcileLocked();
+        this.assertMutationAdmission(lockSignal);
+        await this.reconcileLocked(lockSignal);
         const saved = this.entries.get(materialized.id);
         if (!saved?.spec || saved.status.status !== "enabled" || !saved.status.registered) {
           throw new PipelineError("PIPELINE_INVALID", `saved pipeline could not be enabled: ${saved?.status.issues.map((item) => item.message).join("; ") ?? "unknown error"}`, {
@@ -126,21 +184,28 @@ export class PipelineService {
         }
         return { spec: deepCloneJson(saved.spec), status: deepCloneJson(saved.status), generatedTarget: generatedTarget(materialized.id) };
       } catch (error) {
+        // The kernel-held advisory lock cannot be stolen while this process is
+        // alive, so restoring the last-known-good files remains serialized.
         await this.repository.restore(materialized.id, previousFiles);
-        await this.reconcileLocked();
+        if (!this.closing) await this.reconcileLocked(lockSignal);
         throw error;
       }
-    });
+    }));
   }
 
   async delete(id: string, confirmed: boolean): Promise<{ deleted: boolean; id: string; disabledDependents: string[] }> {
     if (!confirmed) throw new PipelineError("PIPELINE_INVALID", "delete_pipeline requires confirm: true");
-    return this.mutex.run(async () => {
+    this.assertMutationAdmission();
+    return this.mutex.run(() => this.repository.withMutationLock(async (lockSignal) => {
+      this.assertMutationAdmission(lockSignal);
+      await this.reconcileLocked(lockSignal);
       const dependents = [...this.entries.values()].filter((entry) => entry.spec?.steps.some((step) => step.target === generatedTarget(id))).map((entry) => entry.id);
+      this.assertMutationAdmission(lockSignal);
       const deleted = await this.repository.delete(id);
-      await this.reconcileLocked();
+      this.assertMutationAdmission(lockSignal);
+      await this.reconcileLocked(lockSignal);
       return { deleted, id, disabledDependents: dependents };
-    });
+    }));
   }
 
   list(): PipelineCard[] {
@@ -162,7 +227,7 @@ export class PipelineService {
   } | undefined {
     const entry = this.entries.get(id);
     if (!entry?.spec) return undefined;
-    const dependencyStatus = checkPipelineDependencies(entry.spec, createFabricTargetResolver(this.fabric));
+    const dependencyStatus = checkPipelineDependencies(entry.spec, (target) => this.resolveRuntimeTarget(target));
     return {
       spec: deepCloneJson(entry.spec),
       status: deepCloneJson(entry.status),
@@ -228,13 +293,29 @@ export class PipelineService {
     }
   }
 
-  private async disposeGeneratedRegistrations(): Promise<void> {
-    const registrations = [...this.registrations.values()];
-    this.registrations.clear();
-    for (const registration of registrations) await registration.dispose();
+  private assertMutationAdmission(lockSignal?: AbortSignal): void {
+    if (hasActivePipelineExecution()) throw new PipelineError("PIPELINE_REENTRANT_MUTATION", "active pipelines cannot invoke mutation management operations");
+    if (lockSignal?.aborted) throw new PipelineError("PIPELINE_ABORTED", "pipeline mutation lock was compromised");
+    if (this.closing) throw new PipelineError("PIPELINE_ABORTED", "pipeline service is shutting down");
   }
 
-  private async reconcileLocked(): Promise<PipelineStatus[]> {
+  private async disposeGeneratedRegistrations(deadline: number): Promise<PipelineDisposeResult["registrations"]> {
+    const registrations = [...this.registrations.entries()];
+    return Promise.all(registrations.map(async ([id, registration]) => {
+      try {
+        const disposed = await boundedDispose(registration.dispose(), remainingMs(deadline));
+        if (disposed) this.registrations.delete(id);
+        return disposed
+          ? { nodeId: registration.nodeId, status: "disposed" as const }
+          : { nodeId: registration.nodeId, status: "timed_out" as const, error: "registration drain exceeded shutdown deadline" };
+      } catch (error) {
+        return { nodeId: registration.nodeId, status: "failed" as const, error: error instanceof Error ? error.message : String(error) };
+      }
+    }));
+  }
+
+  private async reconcileLocked(lockSignal?: AbortSignal): Promise<PipelineStatus[]> {
+    this.assertMutationAdmission(lockSignal);
     await this.repository.initialize();
     this.entries.clear();
     const records = await this.repository.readAll();
@@ -328,6 +409,7 @@ export class PipelineService {
     }
 
     for (const entry of [...this.entries.values()].sort((left, right) => left.id.localeCompare(right.id))) {
+      this.assertMutationAdmission(lockSignal);
       if (entry.status.status !== "enabled" || !entry.spec || !entry.manifest) continue;
       try {
         entry.snapshot = createRuntimeSnapshot(entry.spec);
@@ -336,6 +418,12 @@ export class PipelineService {
         else this.registrations.set(entry.id, registerGeneratedPipeline(this.fabric, entry.manifest, entry.snapshot, this.executor));
         entry.status.registered = true;
       } catch (error) {
+        const current = this.registrations.get(entry.id);
+        if (current) {
+          await current.dispose().catch(() => undefined);
+          this.registrations.delete(entry.id);
+        }
+        entry.snapshot = undefined;
         entry.status.status = "quarantined";
         entry.status.registered = false;
         entry.status.issues.push({ code: "REGISTRATION_FAILED", message: error instanceof Error ? error.message : String(error) });
@@ -372,6 +460,7 @@ export class PipelineService {
       }
     }
     const statuses = this.list().map(({ description: _description, tags: _tags, stepCount: _stepCount, dependencyPolicy: _policy, ...item }) => item);
+    this.assertMutationAdmission(lockSignal);
     await this.repository.writeIndex(statuses);
     return statuses;
   }
@@ -386,9 +475,48 @@ export class PipelineService {
     return staged;
   }
 
+  private resolveRuntimeTarget(target: string): ResolvedTarget | undefined {
+    const parsed = parseTarget(target);
+    if (parsed?.provide === GENERATED_RUN_PROVIDE && parsed.nodeId.startsWith(GENERATED_NODE_PREFIX)) {
+      const id = parsed.nodeId.slice(GENERATED_NODE_PREFIX.length);
+      const entry = this.entries.get(id);
+      if (entry?.spec && entry.status.status === "enabled") {
+        return createDerivedTargets(new Map([[id, entry.spec]]), new Set()).get(target);
+      }
+    }
+    return createFabricTargetResolver(this.fabric)(target);
+  }
+
   private createStagedResolver(specs: ReadonlyMap<string, PipelineSpecV1>): TargetResolver {
     return createFabricTargetResolver(this.fabric, createDerivedTargets(specs, new Set()));
   }
+}
+
+function remainingMs(deadline: number): number {
+  return Math.max(0, Math.ceil(deadline - performance.now()));
+}
+
+function createDisposeResult(
+  shutdown: Awaited<ReturnType<PipelineExecutor["shutdown"]>>,
+  registrations: PipelineDisposeResult["registrations"],
+): PipelineDisposeResult {
+  return {
+    status: shutdown.drained && registrations.every((item) => item.status === "disposed") ? "completed" : "degraded",
+    activeRunsDrained: shutdown.activeRunsDrained,
+    detachedDownstreamInvocationsDrained: shutdown.detachedDownstreamInvocationsDrained,
+    pendingDetachedDownstreamInvocations: shutdown.pendingDetachedDownstreamInvocations,
+    registrations,
+  };
+}
+
+function boundedDispose(operation: Promise<void>, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    operation.then(
+      () => { clearTimeout(timer); resolve(true); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
 }
 
 function createDerivedTargets(specs: ReadonlyMap<string, PipelineSpecV1>, excluded: ReadonlySet<string>): Map<string, ResolvedTarget> {
@@ -456,12 +584,36 @@ class AsyncMutex {
   private tail: Promise<void> = Promise.resolve();
 
   async run<T>(operation: () => Promise<T>): Promise<T> {
+    const outcome = await this.enqueue(operation);
+    if (!outcome.acquired) throw new Error("mutex acquisition unexpectedly timed out");
+    return outcome.value;
+  }
+
+  runUntil<T>(deadline: number, operation: () => Promise<T>): Promise<{ acquired: true; value: T } | { acquired: false }> {
+    return this.enqueue(operation, deadline);
+  }
+
+  private async enqueue<T>(operation: () => Promise<T>, deadline?: number): Promise<{ acquired: true; value: T } | { acquired: false }> {
     const previous = this.tail;
     let release!: () => void;
     this.tail = new Promise<void>((resolve) => { release = resolve; });
-    await previous;
+    if (deadline !== undefined) {
+      const timeoutMs = remainingMs(deadline);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const acquired = await Promise.race([
+        previous.then(() => true as const),
+        new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+      ]);
+      if (timer) clearTimeout(timer);
+      if (!acquired) {
+        void previous.then(release);
+        return { acquired: false };
+      }
+    } else {
+      await previous;
+    }
     try {
-      return await operation();
+      return { acquired: true, value: await operation() };
     } finally {
       release();
     }

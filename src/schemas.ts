@@ -1,3 +1,4 @@
+import { MAX_CANDIDATE_SPEC_BYTES, MAX_CANDIDATE_SPEC_DEPTH, MAX_CANDIDATE_SPEC_NODES } from "./config.ts";
 import type {
   Binding,
   JsonSchemaLite,
@@ -142,6 +143,8 @@ export function validateJsonSchemaValue(schema: JsonSchemaLite, value: unknown, 
 
 export function parsePipelineSpec(value: unknown): { spec?: PipelineSpecV1; errors: Issue[] } {
   const errors: Issue[] = [];
+  const boundError = preflightCandidate(value);
+  if (boundError) return { errors: [boundError] };
   if (!isPlainObject(value)) return { errors: [{ code: "INVALID_SPEC", message: "pipeline spec must be an object", path: "" }] };
 
   requireExactKeys(value, new Set([
@@ -357,6 +360,49 @@ export function deepFreeze<T>(value: T): Readonly<T> {
 export function jsonByteLength(value: unknown): number {
   const serialized = JSON.stringify(value);
   return Buffer.byteLength(serialized === undefined ? "undefined" : serialized, "utf8");
+}
+
+function preflightCandidate(value: unknown): Issue | undefined {
+  const active = new Set<object>();
+  const stack: Array<{ value: unknown; depth: number; exit: boolean }> = [{ value, depth: 0, exit: false }];
+  let nodes = 0;
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (current.exit) {
+      if (isObjectLike(current.value)) active.delete(current.value);
+      continue;
+    }
+    nodes += 1;
+    if (nodes > MAX_CANDIDATE_SPEC_NODES) {
+      return { code: "SPEC_TOO_LARGE", message: `pipeline candidate exceeds ${MAX_CANDIDATE_SPEC_NODES} values`, path: "" };
+    }
+    if (current.depth > MAX_CANDIDATE_SPEC_DEPTH) {
+      return { code: "SPEC_TOO_DEEP", message: `pipeline candidate exceeds depth ${MAX_CANDIDATE_SPEC_DEPTH}`, path: "" };
+    }
+    if (!isObjectLike(current.value)) continue;
+    if (active.has(current.value)) return { code: "SPEC_CYCLE", message: "pipeline candidate contains a cyclic value", path: "" };
+    active.add(current.value);
+    stack.push({ value: current.value, depth: current.depth, exit: true });
+    const children = Array.isArray(current.value) ? current.value : Object.values(current.value);
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push({ value: children[index], depth: current.depth + 1, exit: false });
+    }
+  }
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    return { code: "INVALID_SPEC", message: "pipeline candidate must be JSON-serializable", path: "" };
+  }
+  if (serialized === undefined) return { code: "INVALID_SPEC", message: "pipeline candidate must be JSON-serializable", path: "" };
+  if (Buffer.byteLength(serialized, "utf8") > MAX_CANDIDATE_SPEC_BYTES) {
+    return { code: "SPEC_TOO_LARGE", message: `pipeline candidate exceeds ${MAX_CANDIDATE_SPEC_BYTES} bytes`, path: "" };
+  }
+  return undefined;
+}
+
+function isObjectLike(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
 }
 
 function matchesType(type: JsonSchemaLite["type"], value: unknown): boolean {

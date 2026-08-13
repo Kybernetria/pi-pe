@@ -6,11 +6,17 @@ export interface RepositoryPaths {
   root: string;
   pipelines: string;
   index: string;
+  mutationLock: string;
 }
 
 export function repositoryPaths(root = defaultStateDirectory()): RepositoryPaths {
   const absolute = resolve(root);
-  return { root: absolute, pipelines: join(absolute, "pipelines"), index: join(absolute, "index.json") };
+  return {
+    root: absolute,
+    pipelines: join(absolute, "pipelines"),
+    index: join(absolute, "index.json"),
+    mutationLock: join(absolute, ".mutation.lock"),
+  };
 }
 
 export function pipelineDirectory(paths: RepositoryPaths, id: string): string {
