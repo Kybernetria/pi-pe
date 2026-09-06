@@ -28,6 +28,11 @@ test("offline lifecycle catalogs, validates, stores, maps, and deletes without g
 
   const mapping = await call("pi_pe_dry_run_mapping", { id: "mapped", pipelineInput: { text: "offline" }, stepOutputs: { upper: { value: "OFFLINE" }, wrap: { result: "Result: OFFLINE" } } });
   assert.deepEqual((mapping as any).details.output, { result: "Result: OFFLINE" });
+  const invalidMapping = await service.dryRun({ id: "mapped", pipelineInput: { text: 42 }, stepOutputs: { upper: { value: "OFFLINE" }, wrap: { result: 42 } } });
+  assert.equal(invalidMapping.pipelineInputValid, false);
+  assert.equal(invalidMapping.steps[0]?.inputValid, false);
+  assert.equal(invalidMapping.steps[1]?.outputValid, false);
+  assert.match(invalidMapping.outputError ?? "", /pipeline output must be object|result must be string/);
   const listed = await call("pi_pe_list_pipelines", {});
   assert.equal((listed as any).details.pipelines.length, 1);
   await call("pi_pe_delete_pipeline", { id: "mapped", confirm: true });

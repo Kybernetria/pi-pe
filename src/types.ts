@@ -106,4 +106,12 @@ export interface PipelineStatus {
 export interface PipelineCard extends PipelineStatus { description?: string; tags?: string[]; stepCount?: number; dependencyPolicy?: DependencyPolicy; }
 
 export interface PersistedIndexV1 { schemaVersion: 1; updatedAt: string; pipelines: PipelineStatus[]; }
-export interface DryRunStep { stepId: string; target: string; input?: unknown; inputValid: boolean; error?: string; }
+export interface DryRunStep {
+  stepId: string;
+  target: string;
+  input?: unknown;
+  inputValid: boolean;
+  error?: string;
+  outputValid?: boolean;
+  outputError?: string;
+}

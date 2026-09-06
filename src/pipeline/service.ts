@@ -126,7 +126,14 @@ export class PipelineService {
     };
   }
 
-  async dryRun(value: { id?: string; spec?: unknown; pipelineInput: unknown; stepOutputs?: Record<string, unknown> }): Promise<{ validation: ValidationReport; steps: DryRunStep[]; output?: unknown; outputError?: string }> {
+  async dryRun(value: { id?: string; spec?: unknown; pipelineInput: unknown; stepOutputs?: Record<string, unknown> }): Promise<{
+    validation: ValidationReport;
+    pipelineInputValid?: boolean;
+    pipelineInputError?: string;
+    steps: DryRunStep[];
+    output?: unknown;
+    outputError?: string;
+  }> {
     let spec: PipelineSpecV1 | undefined;
     let validation: ValidationReport;
     if (value.id) {
@@ -144,6 +151,11 @@ export class PipelineService {
     }
     if (!spec) return { validation, steps: [] };
 
+    const pipelineInputError = validateJsonSchemaValue(spec.inputSchema, value.pipelineInput, "pipeline input");
+    const inputStatus = {
+      pipelineInputValid: pipelineInputError === undefined,
+      ...(pipelineInputError ? { pipelineInputError } : {}),
+    };
     const outputs = new Map<string, unknown>();
     const steps: DryRunStep[] = [];
     let previousStepId: string | undefined;
@@ -157,11 +169,23 @@ export class PipelineService {
       } catch (error) {
         steps.push({ stepId: step.id, target: step.target, inputValid: false, error: error instanceof Error ? error.message : String(error) });
       }
-      if (value.stepOutputs && Object.prototype.hasOwnProperty.call(value.stepOutputs, step.id)) outputs.set(step.id, value.stepOutputs[step.id]);
+      if (value.stepOutputs && Object.prototype.hasOwnProperty.call(value.stepOutputs, step.id)) {
+        const stepOutput = value.stepOutputs[step.id];
+        outputs.set(step.id, stepOutput);
+        const target = resolver(step.target);
+        const outputError = target ? validateJsonSchemaValue(target.provide.outputSchema, stepOutput, `step ${step.id} output`) : undefined;
+        const dryRunStep = steps.at(-1);
+        if (dryRunStep) Object.assign(dryRunStep, { outputValid: outputError === undefined, ...(outputError ? { outputError } : {}) });
+      }
       previousStepId = step.id;
     }
-    try { return { validation, steps, output: selectPipelineOutput(spec, value.pipelineInput, outputs) }; }
-    catch (error) { return { validation, steps, outputError: error instanceof Error ? error.message : String(error) }; }
+    try {
+      const output = selectPipelineOutput(spec, value.pipelineInput, outputs);
+      const outputError = validateJsonSchemaValue(spec.outputSchema, output, "pipeline output");
+      return { validation, ...inputStatus, steps, output, ...(outputError ? { outputError } : {}) };
+    } catch (error) {
+      return { validation, ...inputStatus, steps, outputError: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   private async reconcileLocked(): Promise<PipelineStatus[]> {

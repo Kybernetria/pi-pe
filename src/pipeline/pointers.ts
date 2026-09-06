@@ -138,7 +138,12 @@ export function selectSchema(schema: JsonSchemaLite, pointer = ""): SchemaSelect
     if (current.type === "object" || current.properties || current.required) {
       const child = current.properties?.[segment];
       if (!child) {
-        if (current.properties) return { schema: {}, known: false, guaranteed: false, error: `${traversed} is not declared by the source schema` };
+        if (current.additionalProperties === false) {
+          return { schema: {}, known: false, guaranteed: false, error: `${traversed} is not declared by the source schema` };
+        }
+        // An object may omit properties from its declaration when additional
+        // properties are allowed. The value remains valid, but its contract is
+        // unknown rather than invalid.
         return { schema: {}, known: false, guaranteed: false };
       }
       guaranteed = guaranteed && (current.required ?? []).includes(segment);

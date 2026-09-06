@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { atomicWriteFile } from "../src/storage/atomic-write.ts";
 import { PipelineRepository } from "../src/storage/repository.ts";
 import { fixture } from "./helpers.ts";
+
+test("atomic writes remove temporary files when writing fails", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pi-pe-storage-atomic-failure-"));
+  const path = join(root, "target.json");
+  await assert.rejects(() => atomicWriteFile(path, 123 as unknown as string), /string|buffer|ArrayBuffer/i);
+  assert.deepEqual((await readdir(root)).filter((entry) => entry.endsWith(".tmp")), []);
+});
 
 test("repository writes readable pipeline specifications and restores an exact snapshot", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-pe-storage-"));
@@ -41,7 +49,11 @@ test("repository refuses symlinked state roots and files", async () => {
   const outsideRoot = await mkdtemp(join(parent, "outside-root-"));
   const linkedRoot = join(parent, "linked-root");
   await symlink(outsideRoot, linkedRoot, "dir");
-  await assert.rejects(() => new PipelineRepository(linkedRoot).initialize(), /not a symlink/);
+  const linkedRepository = new PipelineRepository(linkedRoot);
+  await assert.rejects(() => linkedRepository.initialize(), /not a symlink/);
+  await assert.rejects(() => linkedRepository.read("mapped"), /not a symlink/);
+  await assert.rejects(() => linkedRepository.snapshot("mapped"), /not a symlink/);
+  await assert.rejects(() => linkedRepository.delete("mapped"), /not a symlink/);
   await assert.rejects(() => access(join(outsideRoot, "pipelines")));
 
   const root = await mkdtemp(join(tmpdir(), "pi-pe-storage-file-symlink-"));

@@ -41,12 +41,16 @@ export class PipelineRepository {
 
   async read(id: string): Promise<unknown | undefined> {
     if (!isSafeId(id)) return undefined;
+    await this.initialize();
+    if (!(await assertPipelineDirectory(this.paths, id))) return undefined;
     try { return JSON.parse(await readLimited(pipelineSpecPath(this.paths, id))); }
     catch (error) { if (isNotFound(error)) return undefined; throw error; }
   }
 
   async snapshot(id: string): Promise<PipelineFilesSnapshot | undefined> {
     if (!isSafeId(id)) throw new Error(`Unsafe pipeline id: ${JSON.stringify(id)}`);
+    await this.initialize();
+    if (!(await assertPipelineDirectory(this.paths, id))) return undefined;
     const pipeline = await readOptional(pipelineSpecPath(this.paths, id));
     return pipeline === undefined ? undefined : { pipeline };
   }
@@ -63,6 +67,7 @@ export class PipelineRepository {
   }
 
   async restore(id: string, snapshot: PipelineFilesSnapshot | undefined): Promise<void> {
+    await this.initialize();
     if (!snapshot) { await this.delete(id); return; }
     const directory = pipelineDirectory(this.paths, id);
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -74,6 +79,7 @@ export class PipelineRepository {
 
   async delete(id: string): Promise<boolean> {
     if (!isSafeId(id)) throw new Error(`Unsafe pipeline id: ${JSON.stringify(id)}`);
+    await this.initialize();
     const directory = pipelineDirectory(this.paths, id);
     try {
       const stats = await lstat(directory);
@@ -87,6 +93,18 @@ export class PipelineRepository {
     await this.initialize();
     const index: PersistedIndexV1 = { schemaVersion: 1, updatedAt: new Date().toISOString(), pipelines: [...statuses].sort((left, right) => left.id.localeCompare(right.id)) };
     await atomicWriteFile(this.paths.index, pretty(index));
+  }
+}
+
+async function assertPipelineDirectory(paths: RepositoryPaths, id: string): Promise<boolean> {
+  const directory = pipelineDirectory(paths, id);
+  try {
+    const stats = await lstat(directory);
+    if (!stats.isDirectory() || stats.isSymbolicLink()) throw new Error(`Expected a real pipeline directory, not a symlink: ${directory}`);
+    return true;
+  } catch (error) {
+    if (isNotFound(error)) return false;
+    throw error;
   }
 }
 

@@ -353,9 +353,15 @@ export function isJsonValue(value: unknown, seen = new Set<object>(), depth = 0)
   if (typeof value !== "object" || depth > PIPELINE_MAX_JSON_DEPTH) return false;
   if (seen.has(value)) return false;
   seen.add(value);
-  if (Array.isArray(value)) return value.every((item) => isJsonValue(item, seen, depth + 1));
-  if (!isPlainObject(value)) return false;
-  return Object.entries(value).every(([key, item]) => !BLOCKED_KEYS.has(key) && isJsonValue(item, seen, depth + 1));
+  let valid: boolean;
+  if (Array.isArray(value)) valid = value.every((item) => isJsonValue(item, seen, depth + 1));
+  else if (!isPlainObject(value)) valid = false;
+  else valid = Object.entries(value).every(([key, item]) => !BLOCKED_KEYS.has(key) && isJsonValue(item, seen, depth + 1));
+  // `seen` tracks the current recursion path, not every object visited. JSON
+  // values may contain the same object reference more than once; only cycles
+  // are invalid.
+  seen.delete(value);
+  return valid;
 }
 
 export function deepCloneJson<T>(value: T): T {

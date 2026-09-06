@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { isJsonValue } from "../src/schemas.ts";
 import { validatePipelineCandidate } from "../src/pipeline/validate.ts";
 import { fixture, registerHandler, registerMappedFixtures, resolverFrom, TestToolRuntime } from "./helpers.ts";
 
@@ -15,6 +16,14 @@ test("unsafe IDs, empty pipelines, bounds, and unknown tools fail", async () => 
   assert(validatePipelineCandidate({ ...base, steps: [] }, resolverFrom(runtime)).report.errors.some((error) => error.code === "EMPTY_PIPELINE"));
   assert(validatePipelineCandidate({ ...base, limits: { maxSteps: 1 } }, resolverFrom(runtime)).report.errors.some((error) => error.code === "STEP_LIMIT"));
   assert(validatePipelineCandidate(base, resolverFrom(new TestToolRuntime())).report.errors.some((error) => error.code === "DEPENDENCY_NOT_FOUND"));
+});
+
+test("reused object references are valid JSON values while cycles are not", () => {
+  const shared = { value: 1 };
+  assert.equal(isJsonValue([shared, shared]), true);
+  const cycle: Record<string, unknown> = {};
+  cycle.self = cycle;
+  assert.equal(isJsonValue(cycle), false);
 });
 
 test("schema enums must match their declared type", async () => {
