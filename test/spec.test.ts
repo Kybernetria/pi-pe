@@ -17,6 +17,16 @@ test("unsafe IDs, empty pipelines, bounds, and unknown tools fail", async () => 
   assert(validatePipelineCandidate(base, resolverFrom(new TestToolRuntime())).report.errors.some((error) => error.code === "DEPENDENCY_NOT_FOUND"));
 });
 
+test("schema enums must match their declared type", async () => {
+  const runtime = new TestToolRuntime();
+  const base = await fixture("passthrough.pipeline.json");
+  const report = validatePipelineCandidate({ ...base, inputSchema: { type: "string", enum: [42] } }, resolverFrom(runtime)).report;
+  assert.equal(report.valid, false);
+  assert(report.errors.some((error) => error.code === "INVALID_SCHEMA_ENUM_TYPE"));
+  const impossible = validatePipelineCandidate({ ...base, inputSchema: { type: "object", required: ["missing"], properties: {}, additionalProperties: false } }, resolverFrom(runtime)).report;
+  assert(impossible.errors.some((error) => error.code === "INVALID_SCHEMA_REQUIRED"));
+});
+
 test("broad pass-through ordinary tools require runtime-only review", async () => {
   const runtime = new TestToolRuntime(); registerHandler(runtime, "broad_run", {}, {}, (input) => input); const base = await fixture("passthrough.pipeline.json");
   const report = validatePipelineCandidate({ ...base, id: "broad-pipe", inputSchema: {}, outputSchema: {}, steps: [{ id: "broad", target: "broad_run", input: { mode: "pass", from: { source: "pipeline_input" } } }] }, resolverFrom(runtime)).report;

@@ -41,7 +41,18 @@ export function createManagementTools(runtime: ToolRuntime, service: PipelineSer
       "List or search the native Pi tools visible to this session. Returns metadata only; it never runs a tool.",
       "List or search native Pi tool metadata without executing tools",
       ["Use pi_pe_catalog to discover native Pi tool names and input schemas before authoring a pipeline."],
-      { type: "object", additionalProperties: true },
+      {
+        type: "object",
+        properties: {
+          query: { type: "string", maxLength: 2_000 },
+          nodeId: { type: "string", maxLength: 128 },
+          tags: { type: "array", items: { type: "string", maxLength: 256 } },
+          executionType: { type: "string", enum: ["native"] },
+          effects: { type: "array", items: { type: "string", maxLength: 256 } },
+          limit: { type: "integer", minimum: 1, maximum: 100 },
+        },
+        additionalProperties: false,
+      },
       async (input) => bound(catalogProvides(runtime, management, asRecord(input) as CatalogFilter)),
     ),
     tool(
@@ -94,7 +105,7 @@ export function createManagementTools(runtime: ToolRuntime, service: PipelineSer
       "List saved offline pipelines and their validation or native metadata status.",
       "List saved offline pipeline specifications",
       ["Use pi_pe_list_pipelines to review saved pipeline status without invoking any target."],
-      { type: "object", additionalProperties: true },
+      { type: "object", additionalProperties: false },
       async () => bound({ pipelines: service.list() }),
     ),
     tool(
@@ -124,7 +135,7 @@ export function createManagementTools(runtime: ToolRuntime, service: PipelineSer
       "Re-read saved offline pipeline specifications and refresh their validation status; no tools are registered or run.",
       "Reload saved offline pipeline specifications",
       ["Use pi_pe_reload_pipelines after native extension changes to refresh offline dependency metadata."],
-      { type: "object", additionalProperties: true },
+      { type: "object", additionalProperties: false },
       async () => bound({ pipelines: await service.reload() }),
     ),
   ];

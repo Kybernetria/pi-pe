@@ -85,9 +85,20 @@ export function validateJsonSchemaDefinition(schema: unknown, path = "schema", i
     }
   }
   if (schema.items !== undefined) valid = validateJsonSchemaDefinition(schema.items, `${path}.items`, issues, depth + 1) && valid;
+  if (Array.isArray(schema.required) && schema.additionalProperties === false) {
+    const declared = isPlainObject(schema.properties) ? new Set(Object.keys(schema.properties)) : new Set<string>();
+    const missing = schema.required.find((key) => !declared.has(key));
+    if (missing !== undefined) {
+      issues.push({ code: "INVALID_SCHEMA_REQUIRED", message: `${path}.required names ${JSON.stringify(missing)}, which is not declared by properties while additionalProperties is false`, path: `${path}/required` });
+      valid = false;
+    }
+  }
   if (schema.enum !== undefined) {
     if (!Array.isArray(schema.enum) || schema.enum.length === 0 || schema.enum.some((item) => !isJsonValue(item))) {
       issues.push({ code: "INVALID_SCHEMA_ENUM", message: `${path}.enum must be a non-empty array of JSON values`, path: `${path}/enum` });
+      valid = false;
+    } else if (schema.type && schema.enum.some((item) => !matchesType(schema.type as JsonSchemaLite["type"], item))) {
+      issues.push({ code: "INVALID_SCHEMA_ENUM_TYPE", message: `${path}.enum contains a value incompatible with ${schema.type}`, path: `${path}/enum` });
       valid = false;
     }
   }

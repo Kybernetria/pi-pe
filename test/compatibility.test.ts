@@ -20,6 +20,21 @@ test("source enum must be a subset of destination enum", () => {
   ).kind, "incompatible");
 });
 
+test("optional object properties are checked recursively", () => {
+  assert.equal(checkSchemaCompatibility(
+    { type: "object", properties: { value: { type: "string" } } },
+    { type: "object", properties: { value: { type: "number" } } },
+  ).kind, "incompatible");
+  assert.equal(checkSchemaCompatibility(
+    { type: "object", properties: { extra: { type: "string" } } },
+    { type: "object", properties: {}, additionalProperties: false },
+  ).kind, "incompatible");
+  assert.equal(checkSchemaCompatibility(
+    { type: "object", properties: { value: { type: "string" } } },
+    { type: "object", properties: { value: { type: "string" } }, additionalProperties: false },
+  ).kind, "unknown");
+});
+
 test("required objects and arrays are checked recursively", () => {
   assert.equal(checkSchemaCompatibility(
     { type: "object", required: ["x"], properties: { x: { type: "integer" } } },

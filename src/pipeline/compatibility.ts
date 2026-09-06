@@ -80,6 +80,7 @@ function compareObjects(
     return "unknown";
   }
   let result: CompatibilityKind = "compatible";
+  const sourceRequired = new Set(source.required ?? []);
   for (const property of destination.required ?? []) {
     const sourceProperty = source.properties[property];
     const destinationProperty = destination.properties[property];
@@ -87,7 +88,7 @@ function compareObjects(
       reasons.push(`${path}.${property} is required by destination but absent from source`);
       return "incompatible";
     }
-    if (!(source.required ?? []).includes(property)) {
+    if (!sourceRequired.has(property)) {
       reasons.push(`${path}.${property} is required by destination but optional in source`);
       return "incompatible";
     }
@@ -96,8 +97,27 @@ function compareObjects(
       result = combine(result, "unknown");
       continue;
     }
-    result = combine(result, compare(sourceProperty, destinationProperty, `${path}.${property}`, reasons, seen));
-    if (result === "incompatible") return result;
+  }
+
+  // Optional values can still be present at runtime. Compare every property
+  // shared by the contracts, not just destination-required properties.
+  for (const [property, sourceProperty] of Object.entries(source.properties)) {
+    const destinationProperty = destination.properties[property];
+    if (destinationProperty) {
+      result = combine(result, compare(sourceProperty, destinationProperty, `${path}.${property}`, reasons, seen));
+      if (result === "incompatible") return result;
+    } else if (destination.additionalProperties === false) {
+      reasons.push(`${path}.${property} is allowed by source but rejected by destination`);
+      return "incompatible";
+    }
+  }
+
+  // JSON Schema permits additional properties unless explicitly disabled. If
+  // the source does not prove that it emits only declared properties, a strict
+  // destination cannot be shown safe statically.
+  if (destination.additionalProperties === false && source.additionalProperties !== false) {
+    reasons.push(`${path} source may contain additional properties rejected by destination`);
+    result = combine(result, "unknown");
   }
   return result;
 }
