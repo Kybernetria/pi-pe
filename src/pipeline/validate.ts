@@ -1,6 +1,5 @@
-import type { JsonSchemaLite } from "@kybernetria/pi-protocol/core";
-import { HARD_LIMITS } from "../config.ts";
-import { generatedTarget, parsePipelineSpec, parseTarget } from "../schemas.ts";
+import type { JsonSchemaLite } from "../types.ts";
+import { parsePipelineSpec, parseTarget } from "../schemas.ts";
 import type {
   DependencySnapshot,
   Issue,
@@ -38,8 +37,6 @@ export function validateParsedPipeline(spec: PipelineSpecV1, resolveTarget: Targ
   let runtimeOnly = false;
   const resolved = new Map<string, ResolvedTarget>();
   const dependencies: DependencySnapshot[] = [];
-  const ownTarget = generatedTarget(spec.id);
-
   const stepIds = new Set<string>();
   const stepOrder = new Map<string, number>();
   for (const [index, step] of spec.steps.entries()) {
@@ -48,11 +45,6 @@ export function validateParsedPipeline(spec: PipelineSpecV1, resolveTarget: Targ
       stepIds.add(step.id);
       stepOrder.set(step.id, index);
     }
-    if (step.target === ownTarget) errors.push(issue("SELF_REFERENCE", `pipeline cannot invoke its own generated target ${ownTarget}`, `/steps/${index}/target`, step.id, step.target));
-    if (step.timeoutMs !== undefined && step.timeoutMs > HARD_LIMITS.timeoutMs) {
-      errors.push(issue("STEP_TIMEOUT_LIMIT", `step timeout exceeds ${HARD_LIMITS.timeoutMs}`, `/steps/${index}/timeoutMs`, step.id));
-    }
-
     if (!resolved.has(step.target)) {
       const target = resolveTarget(step.target);
       if (!target) errors.push(issue("DEPENDENCY_NOT_FOUND", `target is not registered: ${step.target}`, `/steps/${index}/target`, step.id, step.target));
@@ -147,7 +139,7 @@ export function validateParsedPipeline(spec: PipelineSpecV1, resolveTarget: Targ
     addSourceProblems(selected, errors, warnings, undefined, "/output", (isRuntime) => { runtimeOnly ||= isRuntime; });
     if (!selected.error) {
       const compatibility = checkSchemaCompatibility(selected.schema, spec.outputSchema, "pipeline output");
-      applyCompatibility(compatibility, errors, warnings, undefined, ownTarget, "/output", (isRuntime) => { runtimeOnly ||= isRuntime; }, "FINAL_OUTPUT_INCOMPATIBLE");
+      applyCompatibility(compatibility, errors, warnings, undefined, "pipeline", "/output", (isRuntime) => { runtimeOnly ||= isRuntime; }, "FINAL_OUTPUT_INCOMPATIBLE");
     }
   }
 
@@ -161,7 +153,6 @@ export function validateParsedPipeline(spec: PipelineSpecV1, resolveTarget: Targ
       errors,
       warnings,
       dependencies,
-      generatedTarget: ownTarget,
     },
   };
 }

@@ -5,11 +5,6 @@ export type PipelineErrorCode =
   | "DEPENDENCY_CHANGED"
   | "MAPPING_FAILED"
   | "STEP_INPUT_INVALID"
-  | "STEP_FAILED"
-  | "STEP_OUTPUT_TOO_LARGE"
-  | "PIPELINE_TIMEOUT"
-  | "PIPELINE_ABORTED"
-  | "PIPELINE_CYCLE"
   | "FINAL_OUTPUT_INVALID";
 
 export class PipelineError extends Error {

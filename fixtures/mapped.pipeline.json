@@ -19,7 +19,7 @@
   "steps": [
     {
       "id": "upper",
-      "target": "fixture.upper",
+      "target": "fixture_upper",
       "input": {
         "mode": "object",
         "bindings": [
@@ -33,7 +33,7 @@
     },
     {
       "id": "wrap",
-      "target": "fixture.wrap",
+      "target": "fixture_wrap",
       "input": {
         "mode": "object",
         "bindings": [

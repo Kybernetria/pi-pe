@@ -1,43 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createProtocolFabric } from "@kybernetria/pi-protocol/core";
-import { parseProtocolManifest } from "@kybernetria/pi-protocol/contract";
-import { createGeneratedManifest } from "../src/generated/manifest.ts";
-import { createManagementHandlers } from "../src/protocol/handlers.ts";
-import { loadManagementProtocol } from "../src/protocol/manifest.ts";
+import { createManagementTools, MANAGEMENT_TOOL_NAMES } from "../src/management/handlers.ts";
+import { catalogProvides } from "../src/management/catalog.ts";
 import { PipelineService } from "../src/pipeline/service.ts";
 import { PipelineRepository } from "../src/storage/repository.ts";
-import { fixture } from "./helpers.ts";
+import { registerHandler, TestToolRuntime } from "./helpers.ts";
 
-const EXPECTED = [
-  "catalog", "describe_target", "validate_pipeline", "save_pipeline", "get_pipeline", "list_pipelines",
-  "delete_pipeline", "run_pipeline", "dry_run_mapping", "reload_pipelines",
-];
-
-test("static manifest is canonical and every provide has an exact handler", () => {
-  const definition = loadManagementProtocol();
-  assert.deepEqual(definition.manifest.provides.map((provide) => provide.name), EXPECTED);
-  const fabric = createProtocolFabric();
-  const service = new PipelineService(fabric, new PipelineRepository("/tmp/pi-pe-manifest-test-unused"));
-  const handlers = createManagementHandlers(fabric, service, definition.manifest.node.id);
-  assert.deepEqual(Object.keys(handlers), EXPECTED);
-  assert.doesNotThrow(() => fabric.install(definition, { handlers }));
+test("management surface uses native Pi tool definitions with prompt metadata", () => {
+  const runtime = new TestToolRuntime();
+  const service = new PipelineService(runtime, new PipelineRepository("/tmp/pi-pe-manifest-test-unused"));
+  const tools = createManagementTools(runtime, service);
+  assert.deepEqual(tools.map((tool) => tool.name), MANAGEMENT_TOOL_NAMES);
+  assert(tools.every((tool) => tool.parameters && tool.promptSnippet && tool.promptGuidelines?.every((item) => item.includes(tool.name))));
 });
 
-test("generated manifest exposes an admitted business contract without deployment metadata", async () => {
-  const spec = await fixture("mapped.pipeline.json");
-  spec.dependencies = [{
-    target: "fixture.wrap", nodeId: "fixture", provide: "wrap",
-    execution: { type: "handler", handler: "wrap" }, effects: ["file_write"],
-    inputSchema: { type: "object" }, outputSchema: { type: "object" }, fingerprint: "test",
-  }];
-  const manifest = createGeneratedManifest(spec);
-  const definition = parseProtocolManifest(manifest);
-  assert.equal(manifest.node.id, "pi_pe_pipeline_mapped");
-  assert.equal(manifest.provides.length, 1);
-  assert.equal(manifest.provides[0].name, "run");
-  assert.equal(manifest.provides[0].inputSchema.type, spec.inputSchema.type);
-  assert.equal(manifest.provides[0].outputSchema.type, spec.outputSchema.type);
-  assert.equal("execution" in manifest.provides[0], false);
-  assert.deepEqual(manifest.provides[0].effects, ["fs.write", "protocol.invoke"]);
+test("catalog reports native metadata limits and never reports generated tools", () => {
+  const runtime = new TestToolRuntime();
+  registerHandler(runtime, "native_probe", { type: "object" }, {}, () => "unused");
+  const result = catalogProvides(runtime, new Set(), {});
+  assert.equal(result.items[0]?.executionType, "native");
+  assert.equal(result.items[0]?.effectsKnown, false);
 });

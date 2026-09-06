@@ -5,10 +5,11 @@ import { parseTarget } from "../schemas.ts";
 
 export function fingerprintTarget(target: ResolvedTarget): string {
   return sha256({
+    name: target.provide.name,
     inputSchema: target.provide.inputSchema,
     outputSchema: target.provide.outputSchema,
-    execution: target.provide.execution,
     effects: [...(target.provide.effects ?? [])].sort(),
+    effectsKnown: target.provide.effectsKnown ?? true,
     version: target.provide.version ?? target.nodeVersion ?? null,
   });
 }
@@ -23,8 +24,8 @@ export function createDependencySnapshot(targetName: string, resolved: ResolvedT
     ...(resolved.packageId ? { packageId: resolved.packageId } : {}),
     ...(resolved.nodeVersion ? { nodeVersion: resolved.nodeVersion } : {}),
     ...(resolved.provide.version ? { provideVersion: resolved.provide.version } : {}),
-    execution: { ...resolved.provide.execution },
     effects: [...new Set(resolved.provide.effects ?? [])].sort(),
+    ...(resolved.provide.effectsKnown !== undefined ? { effectsKnown: resolved.provide.effectsKnown } : {}),
     inputSchema: deepCloneJson(resolved.provide.inputSchema),
     outputSchema: deepCloneJson(resolved.provide.outputSchema),
     fingerprint: fingerprintTarget(resolved),

@@ -1,53 +1,24 @@
 {
   "name": "pi-pe",
   "version": "0.1.0",
-  "description": "Declarative, validated linear pipelines for pi-protocol capabilities",
+  "description": "Declarative, validated linear pipelines built from ordinary Pi tools",
   "type": "module",
-  "keywords": [
-    "pi-package",
-    "pi-protocol",
-    "pipelines",
-    "orchestration"
-  ],
+  "keywords": ["pi-package", "pipelines", "orchestration"],
   "license": "AGPL-3.0",
-  "exports": {
-    ".": "./extension.ts",
-    "./runtime": "./src/index.ts"
-  },
-  "files": [
-    "extension.ts",
-    "pi.protocol.json",
-    "src",
-    "README.md",
-    "LICENSE"
-  ],
+  "exports": { ".": "./extension.ts", "./runtime": "./src/index.ts" },
+  "files": ["extension.ts", "src", "README.md", "LICENSE"],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && node --import tsx --test test/*.test.ts",
-    "protocol:check": "pi-protocol check .",
-    "protocol:generate": "pi-protocol generate ."
+    "package:check": "node --import tsx --test test/package.test.ts"
   },
-  "pi": {
-    "extensions": [
-      "./extension.ts"
-    ]
-  },
-  "piProtocol": {
-    "generated": "protocol.generated.ts"
-  },
-  "dependencies": {
-    "@kybernetria/pi-protocol": "https://github.com/Kybernetria/pi-protocol/releases/download/v4.0.0/kybernetria-pi-protocol-4.0.0.tgz"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
-  },
+  "pi": { "extensions": ["./extension.ts"] },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "*" },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.80.10",
     "@types/node": "^24.5.2",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   },
-  "engines": {
-    "node": ">=22"
-  }
+  "engines": { "node": ">=22" }
 }

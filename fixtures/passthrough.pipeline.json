@@ -10,12 +10,12 @@
   "steps": [
     {
       "id": "first",
-      "target": "fixture.echo_one",
+      "target": "fixture_echo_one",
       "input": { "mode": "pass", "from": { "source": "pipeline_input" } }
     },
     {
       "id": "second",
-      "target": "fixture.echo_two",
+      "target": "fixture_echo_two",
       "input": { "mode": "pass", "from": { "source": "previous" } }
     }
   ],

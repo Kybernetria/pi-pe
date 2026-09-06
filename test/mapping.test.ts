@@ -8,7 +8,7 @@ test("object mapping combines sources and deep-cloned constants", () => {
   const constant = { nested: [1, 2] };
   const step: PipelineStepV1 = {
     id: "map",
-    target: "fixture.target",
+    target: "fixture_target",
     input: {
       mode: "object",
       bindings: [
@@ -32,7 +32,7 @@ test("object mapping combines sources and deep-cloned constants", () => {
 test("missing required source fails with a step-qualified mapping error", () => {
   const step: PipelineStepV1 = {
     id: "map",
-    target: "fixture.target",
+    target: "fixture_target",
     input: {
       mode: "object",
       bindings: [{ to: "/required", from: { source: "pipeline_input", pointer: "/missing" }, required: true }],
@@ -48,7 +48,7 @@ test("pass mode preserves a complete selected value", () => {
   const previous = { value: null };
   const step: PipelineStepV1 = {
     id: "pass",
-    target: "fixture.target",
+    target: "fixture_target",
     input: { mode: "pass", from: { source: "previous" } },
   };
   assert.equal(constructStepInput(step, { pipelineInput: {}, outputs: new Map([["one", previous]]), previousStepId: "one" }), previous);

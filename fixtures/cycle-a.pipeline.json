@@ -10,7 +10,7 @@
   "steps": [
     {
       "id": "call-b",
-      "target": "pi_pe_pipeline_cycle-b.run",
+      "target": "pi_pe_pipeline_cycle-b_run",
       "input": { "mode": "pass", "from": { "source": "pipeline_input" } }
     }
   ],

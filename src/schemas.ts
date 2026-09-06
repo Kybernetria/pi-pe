@@ -1,3 +1,11 @@
+import {
+  PIPELINE_MAX_DESCRIPTION_BYTES,
+  PIPELINE_MAX_JSON_DEPTH,
+  PIPELINE_MAX_MAPPINGS_PER_STEP,
+  PIPELINE_MAX_SCHEMA_DEPTH,
+  PIPELINE_MAX_TAG_BYTES,
+  PIPELINE_MAX_TAGS,
+} from "./config.ts";
 import type {
   Binding,
   JsonSchemaLite,
@@ -12,32 +20,24 @@ import type {
 
 const SCHEMA_TYPES = new Set(["string", "number", "integer", "boolean", "object", "array", "null"]);
 const SAFE_NAME = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-const TARGET = /^([a-z0-9][a-z0-9_-]*)\.([a-z0-9][a-z0-9_-]*)$/;
+const TARGET = /^[a-z0-9][a-z0-9_-]{0,127}$/;
 const BLOCKED_KEYS = new Set(["__proto__", "prototype", "constructor"]);
-export const GENERATED_NODE_PREFIX = "pi_pe_pipeline_";
-export const GENERATED_RUN_PROVIDE = "run";
-
 export function isSafeId(value: string): boolean {
   return SAFE_NAME.test(value);
 }
 
-export function generatedNodeId(id: string): string {
-  if (!isSafeId(id)) throw new Error(`Unsafe pipeline id: ${JSON.stringify(id)}`);
-  return `${GENERATED_NODE_PREFIX}${id}`;
-}
-
-export function generatedTarget(id: string): string {
-  return `${generatedNodeId(id)}.${GENERATED_RUN_PROVIDE}`;
-}
-
 export function parseTarget(target: string): { nodeId: string; provide: string } | undefined {
-  const match = TARGET.exec(target);
-  return match ? { nodeId: match[1], provide: match[2] } : undefined;
+  return TARGET.test(target) ? { nodeId: target, provide: target } : undefined;
 }
 
-export function validateJsonSchemaDefinition(schema: unknown, path = "schema", issues: Issue[] = []): schema is JsonSchemaLite {
+export function validateJsonSchemaDefinition(schema: unknown, path = "schema", issues: Issue[] = [], depth = 0): schema is JsonSchemaLite {
   if (!isPlainObject(schema)) {
     issues.push({ code: "INVALID_SCHEMA", message: `${path} must be an object`, path });
+    return false;
+  }
+
+  if (depth > PIPELINE_MAX_SCHEMA_DEPTH) {
+    issues.push({ code: "SCHEMA_DEPTH_LIMIT", message: `${path} exceeds schema depth ${PIPELINE_MAX_SCHEMA_DEPTH}`, path });
     return false;
   }
 
@@ -80,11 +80,11 @@ export function validateJsonSchemaDefinition(schema: unknown, path = "schema", i
           valid = false;
           continue;
         }
-        valid = validateJsonSchemaDefinition(child, `${path}.properties.${key}`, issues) && valid;
+        valid = validateJsonSchemaDefinition(child, `${path}.properties.${key}`, issues, depth + 1) && valid;
       }
     }
   }
-  if (schema.items !== undefined) valid = validateJsonSchemaDefinition(schema.items, `${path}.items`, issues) && valid;
+  if (schema.items !== undefined) valid = validateJsonSchemaDefinition(schema.items, `${path}.items`, issues, depth + 1) && valid;
   if (schema.enum !== undefined) {
     if (!Array.isArray(schema.enum) || schema.enum.length === 0 || schema.enum.some((item) => !isJsonValue(item))) {
       issues.push({ code: "INVALID_SCHEMA_ENUM", message: `${path}.enum must be a non-empty array of JSON values`, path: `${path}/enum` });
@@ -161,7 +161,14 @@ export function parsePipelineSpec(value: unknown): { spec?: PipelineSpecV1; erro
 
   if (!Array.isArray(value.tags) || value.tags.some((tag) => typeof tag !== "string" || !tag.trim())) {
     issue(errors, "INVALID_TAGS", "tags must be an array of non-empty strings", "/tags");
-  } else if (new Set(value.tags).size !== value.tags.length) issue(errors, "INVALID_TAGS", "tags must not contain duplicates", "/tags");
+  } else {
+    if (value.tags.length > PIPELINE_MAX_TAGS) issue(errors, "TAG_LIMIT", `tags may contain at most ${PIPELINE_MAX_TAGS} entries`, "/tags");
+    if (value.tags.some((tag) => Buffer.byteLength(tag, "utf8") > PIPELINE_MAX_TAG_BYTES)) issue(errors, "TAG_LIMIT", `each tag may be at most ${PIPELINE_MAX_TAG_BYTES} bytes`, "/tags");
+    if (new Set(value.tags).size !== value.tags.length) issue(errors, "INVALID_TAGS", "tags must not contain duplicates", "/tags");
+  }
+  if (typeof value.description === "string" && Buffer.byteLength(value.description, "utf8") > PIPELINE_MAX_DESCRIPTION_BYTES) {
+    issue(errors, "DESCRIPTION_LIMIT", `description may be at most ${PIPELINE_MAX_DESCRIPTION_BYTES} bytes`, "/description");
+  }
 
   validateJsonSchemaDefinition(value.inputSchema, "inputSchema", errors);
   validateJsonSchemaDefinition(value.outputSchema, "outputSchema", errors);
@@ -188,7 +195,7 @@ function validateLimits(value: unknown, errors: Issue[]): value is PipelineLimit
     issue(errors, "INVALID_LIMITS", "limits must be an object", "/limits");
     return false;
   }
-  requireExactKeys(value, new Set(["timeoutMs", "maxSteps", "maxIntermediateBytes", "maxNestedDepth", "maxInvocations"]), "/limits", errors);
+  requireExactKeys(value, new Set(["maxSteps", "maxIntermediateBytes", "maxNestedDepth", "maxInvocations"]), "/limits", errors);
   for (const key of Object.keys(value)) {
     if (!Number.isInteger(value[key]) || (value[key] as number) <= 0) issue(errors, "INVALID_LIMIT", `${key} must be a positive integer`, `/limits/${key}`);
   }
@@ -201,12 +208,11 @@ function validateStep(value: unknown, index: number, errors: Issue[]): value is 
     issue(errors, "INVALID_STEP", "step must be an object", path);
     return false;
   }
-  requireExactKeys(value, new Set(["id", "target", "input", "timeoutMs"]), path, errors);
+  requireExactKeys(value, new Set(["id", "target", "input"]), path, errors);
   requiredString(value, "id", errors, path);
   requiredString(value, "target", errors, path);
   if (typeof value.id === "string" && !isSafeId(value.id)) issue(errors, "INVALID_STEP_ID", "step id must be a safe lowercase name", `${path}/id`);
   if (typeof value.target === "string" && !parseTarget(value.target)) issue(errors, "INVALID_TARGET", "target must be exact nodeId.provide", `${path}/target`);
-  if (value.timeoutMs !== undefined && (!Number.isInteger(value.timeoutMs) || (value.timeoutMs as number) <= 0)) issue(errors, "INVALID_TIMEOUT", "timeoutMs must be a positive integer", `${path}/timeoutMs`);
   if (!isPlainObject(value.input)) {
     issue(errors, "INVALID_STEP_INPUT", "step input must be an object", `${path}/input`);
     return false;
@@ -217,10 +223,13 @@ function validateStep(value: unknown, index: number, errors: Issue[]): value is 
   } else if (value.input.mode === "object") {
     requireExactKeys(value.input, new Set(["mode", "bindings", "constants"]), `${path}/input`, errors);
     if (!Array.isArray(value.input.bindings)) issue(errors, "INVALID_BINDINGS", "bindings must be an array", `${path}/input/bindings`);
+    else if (value.input.bindings.length > PIPELINE_MAX_MAPPINGS_PER_STEP) issue(errors, "MAPPING_LIMIT", `a step may contain at most ${PIPELINE_MAX_MAPPINGS_PER_STEP} bindings`, `${path}/input/bindings`);
     else value.input.bindings.forEach((binding, bindingIndex) => validateBinding(binding, `${path}/input/bindings/${bindingIndex}`, errors));
     if (value.input.constants !== undefined) {
       if (!Array.isArray(value.input.constants)) issue(errors, "INVALID_CONSTANTS", "constants must be an array", `${path}/input/constants`);
-      else value.input.constants.forEach((constant, constantIndex) => {
+      else {
+        if (value.input.constants.length > PIPELINE_MAX_MAPPINGS_PER_STEP) issue(errors, "MAPPING_LIMIT", `a step may contain at most ${PIPELINE_MAX_MAPPINGS_PER_STEP} constants`, `${path}/input/constants`);
+        value.input.constants.forEach((constant, constantIndex) => {
         const constantPath = `${path}/input/constants/${constantIndex}`;
         if (!isPlainObject(constant)) issue(errors, "INVALID_CONSTANT", "constant must be an object", constantPath);
         else {
@@ -228,7 +237,8 @@ function validateStep(value: unknown, index: number, errors: Issue[]): value is 
           if (typeof constant.to !== "string") issue(errors, "INVALID_POINTER", "constant.to must be a JSON Pointer", `${constantPath}/to`);
           if (!("value" in constant) || !isJsonValue(constant.value)) issue(errors, "INVALID_CONSTANT", "constant.value must be a JSON value", `${constantPath}/value`);
         }
-      });
+        });
+      }
     }
   } else issue(errors, "INVALID_MAPPING_MODE", "step input mode must be pass or object", `${path}/input/mode`);
   return true;
@@ -274,7 +284,7 @@ function validateDependencies(value: unknown, errors: Issue[]): value is Depende
       return;
     }
     requireExactKeys(dependency, new Set([
-      "target", "nodeId", "provide", "packageId", "nodeVersion", "provideVersion", "execution", "effects",
+      "target", "nodeId", "provide", "packageId", "nodeVersion", "provideVersion", "effects", "effectsKnown",
       "inputSchema", "outputSchema", "fingerprint",
     ]), path, errors);
     for (const key of ["target", "nodeId", "provide", "fingerprint"] as const) requiredString(dependency, key, errors, path);
@@ -290,14 +300,8 @@ function validateDependencies(value: unknown, errors: Issue[]): value is Depende
       if (seen.has(dependency.target as string)) issue(errors, "INVALID_DEPENDENCY", `duplicate dependency ${dependency.target as string}`, `${path}/target`);
       seen.add(dependency.target as string);
     }
-    if (!isPlainObject(dependency.execution) || (dependency.execution.type !== "handler" && dependency.execution.type !== "agent")) {
-      issue(errors, "INVALID_DEPENDENCY", "dependency execution is invalid", `${path}/execution`);
-    } else if (dependency.execution.type === "handler") {
-      requireExactKeys(dependency.execution, new Set(["type", "handler"]), `${path}/execution`, errors);
-      if (typeof dependency.execution.handler !== "string" || !dependency.execution.handler) issue(errors, "INVALID_DEPENDENCY", "handler execution requires handler", `${path}/execution/handler`);
-    } else {
-      requireExactKeys(dependency.execution, new Set(["type", "agent"]), `${path}/execution`, errors);
-      if (typeof dependency.execution.agent !== "string" || !dependency.execution.agent) issue(errors, "INVALID_DEPENDENCY", "agent execution requires agent", `${path}/execution/agent`);
+    if (dependency.effectsKnown !== undefined && typeof dependency.effectsKnown !== "boolean") {
+      issue(errors, "INVALID_DEPENDENCY", "effectsKnown must be boolean when present", `${path}/effectsKnown`);
     }
     if (!Array.isArray(dependency.effects) || dependency.effects.some((effect) => typeof effect !== "string" || !effect)) issue(errors, "INVALID_DEPENDENCY", "dependency effects must be non-empty strings", `${path}/effects`);
     else if (new Set(dependency.effects).size !== dependency.effects.length) issue(errors, "INVALID_DEPENDENCY", "dependency effects contain duplicates", `${path}/effects`);
@@ -332,15 +336,15 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
   return prototype === Object.prototype || prototype === null;
 }
 
-export function isJsonValue(value: unknown, seen = new Set<object>()): value is JsonValue {
+export function isJsonValue(value: unknown, seen = new Set<object>(), depth = 0): value is JsonValue {
   if (value === null || typeof value === "string" || typeof value === "boolean") return true;
   if (typeof value === "number") return Number.isFinite(value);
-  if (typeof value !== "object") return false;
+  if (typeof value !== "object" || depth > PIPELINE_MAX_JSON_DEPTH) return false;
   if (seen.has(value)) return false;
   seen.add(value);
-  if (Array.isArray(value)) return value.every((item) => isJsonValue(item, seen));
+  if (Array.isArray(value)) return value.every((item) => isJsonValue(item, seen, depth + 1));
   if (!isPlainObject(value)) return false;
-  return Object.entries(value).every(([key, item]) => !BLOCKED_KEYS.has(key) && isJsonValue(item, seen));
+  return Object.entries(value).every(([key, item]) => !BLOCKED_KEYS.has(key) && isJsonValue(item, seen, depth + 1));
 }
 
 export function deepCloneJson<T>(value: T): T {

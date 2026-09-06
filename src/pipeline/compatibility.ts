@@ -1,4 +1,4 @@
-import type { JsonSchemaLite } from "@kybernetria/pi-protocol/core";
+import type { JsonSchemaLite } from "../types.ts";
 import type { DependencySnapshot, ResolvedTarget } from "../types.ts";
 import { canonicalStringify } from "../schemas.ts";
 import { hasMeaningfulSchema } from "./pointers.ts";
@@ -160,20 +160,20 @@ export function inferLiteralSchema(value: unknown): JsonSchemaLite {
       properties: Object.fromEntries(entries.map(([key, child]) => [key, inferLiteralSchema(child)])),
     };
   }
-  return type ? { type, enum: [value] } : {};
+  return type ? { type, enum: [value as never] } : {};
 }
 
 export function checkDependencyContractCompatibility(snapshot: DependencySnapshot, current: ResolvedTarget): CompatibilityResult {
   const reasons: string[] = [];
-  if (snapshot.execution.type !== current.provide.execution.type) {
-    reasons.push(`execution changed from ${snapshot.execution.type} to ${current.provide.execution.type}`);
-    return { kind: "incompatible", reasons };
-  }
-  const oldEffects = new Set(snapshot.effects);
-  const addedEffects = (current.provide.effects ?? []).filter((effect) => !oldEffects.has(effect));
-  if (addedEffects.length > 0) {
-    reasons.push(`new effects require review: ${addedEffects.join(", ")}`);
-    return { kind: "incompatible", reasons };
+  if ((snapshot.effectsKnown ?? true) && (current.provide.effectsKnown ?? true)) {
+    const oldEffects = new Set(snapshot.effects);
+    const addedEffects = (current.provide.effects ?? []).filter((effect) => !oldEffects.has(effect));
+    if (addedEffects.length > 0) {
+      reasons.push(`new effects require review: ${addedEffects.join(", ")}`);
+      return { kind: "incompatible", reasons };
+    }
+  } else {
+    reasons.push("effects are not exposed by the native Pi metadata");
   }
 
   // Existing constructed inputs must remain accepted by the new input schema.
